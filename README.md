@@ -14,6 +14,17 @@ Custom Lovelace card for Home Assistant that visualises the uptime of Proxmox no
 4. After adding it, search for the card in HACS and install it.
 5. The `proxmox-uptime-card.js` resource is added automatically and becomes available in Lovelace.
 
+## Usage
+
+Add the card to your dashboard by editing it in YAML mode or using the visual editor's **Show code editor** option. Use `custom:proxmox-uptime-card` as the card type:
+
+```yaml
+type: custom:proxmox-uptime-card
+title: Proxmox Uptime
+entities:
+  - sensor.proxmox_host_uptime
+```
+
 ## Attribution
 
 Portions of this project are derived from the [Home Assistant History Graph Card](https://github.com/home-assistant/frontend/blob/dev/src/panels/lovelace/cards/hui-history-graph-card.ts),
