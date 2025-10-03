@@ -1,0 +1,18 @@
+{
+  "name": "ha-proxmox-uptime-lovelace",
+  "version": "1.0.0",
+  "description": "A Lovelace card that displays the uptime of Proxmox nodes.",
+  "main": "proxmox-uptime-card.js",
+  "type": "module",
+  "keywords": [
+    "home assistant",
+    "lovelace",
+    "proxmox",
+    "uptime",
+    "custom card"
+  ],
+  "private": true,
+  "scripts": {
+    "test": "echo \"No tests required\""
+  }
+}
