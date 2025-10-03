@@ -58,7 +58,7 @@ class ProxmoxUptimeCard extends LitElement {
 
   static getStubConfig() {
     return {
-      type: "proxmox-uptime-card",
+      type: "custom:proxmox-uptime-card",
       entities: [ "sensor.proxmox_host_uptime" ],
     };
   }
@@ -436,9 +436,9 @@ if (!customElements.get("proxmox-uptime-card-editor")) {
 }
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "proxmox-uptime-card")) {
+if (!window.customCards.some((card) => card.type === "custom:proxmox-uptime-card")) {
   window.customCards.push({
-    type: "proxmox-uptime-card",
+    type: "custom:proxmox-uptime-card",
     name: "Proxmox Uptime Card",
     preview: true,
     description: "Visualises uptime sensors from the Proxmox integration.",
@@ -446,7 +446,7 @@ if (!window.customCards.some((card) => card.type === "proxmox-uptime-card")) {
 }
 
 export const ProxmoxUptimeCardDefinition = {
-  type: "proxmox-uptime-card",
+  type: "custom:proxmox-uptime-card",
   name: "Proxmox Uptime Card",
   description: "Visualises uptime sensors from the Proxmox integration.",
   async loadCardHelpers() {
@@ -460,7 +460,7 @@ export const ProxmoxUptimeCardDefinition = {
   },
   getStubConfig() {
     return {
-      type: "proxmox-uptime-card",
+      type: "custom:proxmox-uptime-card",
       entities: [ "sensor.proxmox_host_uptime" ],
     };
   },
