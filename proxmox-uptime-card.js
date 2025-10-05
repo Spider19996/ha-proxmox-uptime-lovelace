@@ -1088,6 +1088,7 @@ const TIMELINE_SIGNATURE_KEY = "__proxmoxTimelineSignature";
 const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
 const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
 const TIMELINE_LABEL_OVERLAY_CLASS = "proxmox-timeline-label-overlay";
+const TIMELINE_LABEL_ORIGINAL_NAMES_KEY = "__proxmoxTimelineOriginalNames";
 const TIMELINE_LABEL_SIGNATURE_KEY = "__proxmoxTimelineLabelSignature";
 
 const COLOR_FIELDS = [
@@ -2125,6 +2126,132 @@ const createTimelineLabelOverlay = (container) => {
   return overlay;
 };
 
+const cloneTimelineEntries = (entries) =>
+  entries.map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return entry;
+    }
+    const clone = { ...entry };
+    if (Array.isArray(entry.data)) {
+      clone.data = entry.data.map((item) =>
+        item && typeof item === "object" ? { ...item } : item
+      );
+    }
+    return clone;
+  });
+
+const hideTimelineRowNames = (timeline) => {
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return false;
+  }
+
+  const data = Array.isArray(timeline.data) ? timeline.data : [];
+  if (!data.length) {
+    return false;
+  }
+
+  const originalNames =
+    timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY] instanceof Map
+      ? timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY]
+      : new Map();
+
+  let mutated = false;
+  const cloned = cloneTimelineEntries(data).map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return entry;
+    }
+    const entityId = entry.entity_id;
+    if (!entityId) {
+      return entry;
+    }
+    const currentName =
+      typeof entry.name === "string" ? entry.name.trim() : "";
+    if (currentName) {
+      if (!originalNames.has(entityId)) {
+        originalNames.set(entityId, currentName);
+      }
+      entry.name = "";
+      mutated = true;
+    }
+    return entry;
+  });
+
+  if (!mutated) {
+    if (!timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY]) {
+      timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY] = originalNames;
+    }
+    return false;
+  }
+
+  timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY] = originalNames;
+  try {
+    timeline.data = cloned;
+  } catch (err) {
+    return false;
+  }
+  return true;
+};
+
+const restoreTimelineRowNames = (timeline) => {
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return false;
+  }
+
+  const originalNames = timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY];
+  if (!(originalNames instanceof Map) || originalNames.size === 0) {
+    return false;
+  }
+
+  const data = Array.isArray(timeline.data) ? timeline.data : [];
+  if (!data.length) {
+    originalNames.clear();
+    delete timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY];
+    return false;
+  }
+
+  let mutated = false;
+  const namesToClear = [];
+  const cloned = cloneTimelineEntries(data).map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return entry;
+    }
+    const entityId = entry.entity_id;
+    if (!entityId || !originalNames.has(entityId)) {
+      return entry;
+    }
+    const originalName = originalNames.get(entityId);
+    const currentName =
+      typeof entry.name === "string" ? entry.name.trim() : "";
+    if (currentName !== originalName) {
+      entry.name = originalName;
+      mutated = true;
+    }
+    namesToClear.push(entityId);
+    return entry;
+  });
+
+  if (!mutated) {
+    if (originalNames.size === 0) {
+      delete timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY];
+    }
+    return false;
+  }
+
+  try {
+    timeline.data = cloned;
+  } catch (err) {
+    return false;
+  }
+
+  namesToClear.forEach((entityId) => originalNames.delete(entityId));
+
+  if (originalNames.size === 0) {
+    delete timeline[TIMELINE_LABEL_ORIGINAL_NAMES_KEY];
+  }
+
+  return true;
+};
+
 const applyTimelineLabelsToTimelines = (timelines, options) => {
   if (!timelines?.length) {
     return false;
@@ -2178,11 +2305,17 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
         }
         delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
       }
+      if (restoreTimelineRowNames(timeline)) {
+        changed = true;
+      }
       return;
     }
 
     const data = Array.isArray(timeline.data) ? timeline.data : [];
     if (!data.length) {
+      if (restoreTimelineRowNames(timeline)) {
+        changed = true;
+      }
       return;
     }
 
@@ -2216,7 +2349,14 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
       .filter(Boolean);
 
     if (!labels.length) {
+      if (restoreTimelineRowNames(timeline)) {
+        changed = true;
+      }
       return;
+    }
+
+    if (hideTimelineRowNames(timeline)) {
+      changed = true;
     }
 
     const signature = JSON.stringify(
@@ -2312,6 +2452,9 @@ const removeTimelineLabelOverlays = (timelines) => {
     }
     if (timeline[TIMELINE_LABEL_SIGNATURE_KEY]) {
       delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
+      removed = true;
+    }
+    if (restoreTimelineRowNames(timeline)) {
       removed = true;
     }
   });
