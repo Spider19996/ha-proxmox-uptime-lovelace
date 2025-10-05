@@ -2120,6 +2120,7 @@ const createTimelineLabelOverlay = (container) => {
   overlay.style.pointerEvents = "none";
   overlay.style.display = "block";
   overlay.style.zIndex = "2";
+  overlay.style.overflow = "visible";
   container.appendChild(overlay);
   return overlay;
 };
@@ -2158,6 +2159,14 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
       container.style.position = "relative";
     }
 
+    if (container.style.overflow !== "visible") {
+      container.style.overflow = "visible";
+    }
+
+    if (chartBase && chartBase.style.overflow !== "visible") {
+      chartBase.style.overflow = "visible";
+    }
+
     if (!showNames) {
       if (timeline[TIMELINE_LABEL_SIGNATURE_KEY]) {
         const overlay = container.querySelector(
@@ -2183,7 +2192,6 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
     const availableHeight = Math.max(0, totalHeight - gridTop - gridBottom);
     const rowCount = data.length;
     const rowSpan = rowCount ? availableHeight / rowCount : 0;
-    const barHeight = 20;
     const labelGap = 6;
 
     const labels = data
@@ -2201,8 +2209,8 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
           prettifyEntityId(entityId);
         const icon =
           entityInfo?.icon || hassState?.attributes?.icon || "mdi:server";
-        const centerY = gridTop + rowSpan * index + rowSpan / 2;
-        const top = Math.max(0, centerY - barHeight / 2 - labelGap);
+        const rowTop = gridTop + rowSpan * index;
+        const top = Math.max(0, rowTop - labelGap);
         return { entityId, name, icon, top };
       })
       .filter(Boolean);
@@ -2248,6 +2256,7 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
       labelElement.style.pointerEvents = "auto";
       labelElement.style.cursor = "pointer";
       labelElement.style.lineHeight = "1.4";
+      labelElement.style.transform = "translateY(-100%)";
 
       const iconEl = document.createElement("ha-icon");
       iconEl.setAttribute("icon", label.icon);
