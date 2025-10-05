@@ -2269,6 +2269,21 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       let removed = false;
       const processedStyleRoots = new Set();
+      const removeLayoutStyle = (styleRoot) => {
+        if (!styleRoot || processedStyleRoots.has(styleRoot)) {
+          return;
+        }
+        processedStyleRoots.add(styleRoot);
+        const layoutStyle =
+          typeof styleRoot.querySelector === "function"
+            ? styleRoot.querySelector("style[data-proxmox-timeline-layout]")
+            : null;
+        if (layoutStyle) {
+          layoutStyle.remove();
+          removed = true;
+        }
+      };
+
       const timelineElements = collectTimelineElements(root);
       timelineElements.forEach((timeline) => {
         if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
@@ -2284,22 +2299,24 @@ if (!customElements.get("proxmox-uptime-card")) {
               removed = true;
             }
           });
-          const styleRoot = container.getRootNode?.() || container;
-          if (styleRoot && !processedStyleRoots.has(styleRoot)) {
-            processedStyleRoots.add(styleRoot);
-            const layoutStyle =
-              typeof styleRoot.querySelector === "function"
-                ? styleRoot.querySelector("style[data-proxmox-timeline-layout]")
-                : null;
-            if (layoutStyle) {
-              layoutStyle.remove();
-              removed = true;
-            }
+          removeLayoutStyle(container.getRootNode?.() || container);
+        }
+
+        const timelineRoot = timeline.shadowRoot || timeline;
+        if (timelineRoot) {
+          const labels = timelineRoot.querySelectorAll(
+            ".proxmox-timeline-inline-label"
+          );
+          if (labels.length) {
+            labels.forEach((label) => label.remove());
+            removed = true;
           }
+          removeLayoutStyle(timelineRoot);
         }
 
         if (timeline?.dataset?.proxmoxLayoutSignature) {
           delete timeline.dataset.proxmoxLayoutSignature;
+          removed = true;
         }
       });
 
@@ -2320,42 +2337,25 @@ if (!customElements.get("proxmox-uptime-card")) {
       const style = document.createElement("style");
       style.setAttribute("data-proxmox-timeline-layout", "true");
       style.textContent = `
-        .proxmox-timeline-label-overlay {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 6px;
-          margin-bottom: 8px;
-          pointer-events: none;
-          width: 100%;
-        }
-
         .proxmox-timeline-container {
           display: flex;
           flex-direction: column;
           align-items: stretch;
         }
 
-        .proxmox-timeline-container > state-history-chart-timeline {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .proxmox-timeline-label-row {
+        .proxmox-timeline-inline-label {
           display: flex;
           align-items: center;
           gap: 10px;
+          margin: 6px 0 2px;
           color: var(--primary-text-color);
           font-weight: 500;
           font-size: 0.95rem;
           line-height: 1.2;
+          pointer-events: none;
         }
 
-        .proxmox-timeline-label-row:last-child {
-          padding-bottom: 0;
-        }
-
-        .proxmox-timeline-label-row ha-icon {
+        .proxmox-timeline-inline-label ha-icon {
           --mdc-icon-size: 20px;
           color: var(--primary-text-color);
         }
@@ -2398,30 +2398,30 @@ if (!customElements.get("proxmox-uptime-card")) {
         }
 
         const container = timelineEl.parentElement;
-        if (!container) {
+        if (container) {
+          container.classList.add("proxmox-timeline-container");
+          this._ensureTimelineLayoutStyles(container.getRootNode?.() || container);
+          Array.from(
+            container.querySelectorAll(":scope > .proxmox-timeline-label-overlay")
+          ).forEach((overlay) => overlay.remove());
+        }
+
+        const timelineRoot = timelineEl.shadowRoot || timelineEl;
+        if (!timelineRoot) {
           return;
         }
 
-        container.classList.add("proxmox-timeline-container");
-        this._ensureTimelineLayoutStyles(container.getRootNode?.() || container);
-
-        let overlay = container.querySelector(
-          ":scope > .proxmox-timeline-label-overlay"
+        const timelineRows = Array.from(
+          timelineRoot.querySelectorAll("ha-timeline") || []
         );
-        if (!overlay) {
-          overlay = document.createElement("div");
-          overlay.className = "proxmox-timeline-label-overlay";
-          container.insertBefore(overlay, timelineEl);
-        } else if (overlay.nextSibling !== timelineEl) {
-          container.insertBefore(overlay, timelineEl);
+        if (!timelineRows.length) {
+          return;
         }
 
-        const chartBase =
-          timelineEl.shadowRoot?.querySelector("ha-chart-base") ||
-          timelineEl.querySelector?.("ha-chart-base");
-        const timelineHeight = chartBase?.offsetHeight || timelineEl.offsetHeight || 0;
+        this._ensureTimelineLayoutStyles(timelineRoot);
 
-        const signaturePayload = data.map((entry) => {
+        const signaturePayload = timelineRows.map((rowEl, index) => {
+          const entry = data[index] || data[data.length - 1] || {};
           const entityId = entry?.entity_id || entry?.id || "";
           const info = (entityId && this._entityDisplayInfo?.[entityId]) || {};
           return {
@@ -2437,29 +2437,35 @@ if (!customElements.get("proxmox-uptime-card")) {
           };
         });
 
-        const heightSignature = Math.round(timelineHeight);
-        const signature = JSON.stringify({ data: signaturePayload, height: heightSignature });
-        if (overlay.dataset.proxmoxLayoutSignature === signature) {
+        const signature = JSON.stringify({ data: signaturePayload });
+        if (timelineEl.dataset.proxmoxLayoutSignature === signature) {
           return;
         }
 
-        overlay.dataset.proxmoxLayoutSignature = signature;
-        overlay.innerHTML = "";
+        timelineEl.dataset.proxmoxLayoutSignature = signature;
 
-        signaturePayload.forEach((entryInfo) => {
-          const row = document.createElement("div");
-          row.className = "proxmox-timeline-label-row";
+        timelineRoot
+          .querySelectorAll(".proxmox-timeline-inline-label")
+          .forEach((label) => label.remove());
+
+        timelineRows.forEach((rowEl, index) => {
+          const parent = rowEl?.parentElement;
+          if (!parent) {
+            return;
+          }
+          const entryInfo = signaturePayload[index] || {};
+          const labelRow = document.createElement("div");
+          labelRow.className = "proxmox-timeline-inline-label";
 
           const iconEl = document.createElement("ha-icon");
           iconEl.setAttribute("icon", entryInfo.icon || "mdi:server-network");
-          row.append(iconEl);
+          labelRow.append(iconEl);
 
           const textEl = document.createElement("span");
-          textEl.className = "proxmox-timeline-label-text";
           textEl.textContent = entryInfo.name || entryInfo.id || "";
-          row.append(textEl);
+          labelRow.append(textEl);
 
-          overlay.append(row);
+          parent.insertBefore(labelRow, rowEl);
         });
 
         applied = true;
