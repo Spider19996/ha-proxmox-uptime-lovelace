@@ -2365,27 +2365,26 @@ if (!customElements.get("proxmox-uptime-card")) {
           align-items: stretch;
         }
 
-        .proxmox-timeline-row {
-          display: flex;
-          flex-direction: column;
-          align-items: stretch;
-        }
-
         .proxmox-timeline-inline-label {
           display: flex;
           align-items: center;
           gap: 10px;
-          margin: 6px 0 2px;
+          margin: 8px 0 4px;
           color: var(--primary-text-color);
           font-weight: 500;
           font-size: 0.95rem;
           line-height: 1.2;
           pointer-events: none;
+          grid-column: 1 / -1;
         }
 
         .proxmox-timeline-inline-label ha-icon {
           --mdc-icon-size: 20px;
           color: var(--primary-text-color);
+        }
+
+        .proxmox-timeline-row {
+          display: contents;
         }
       `;
       styleRoot.append(style);
