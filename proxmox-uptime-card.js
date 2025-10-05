@@ -930,6 +930,14 @@ const applyNameFilters = (name, filters) => {
 };
 
 
+const slugify = (value) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+
 const normalizeCssColor = (() => {
   let canvas;
   let context;
@@ -1026,6 +1034,7 @@ const TIMELINE_UNKNOWN_ALIASES = new Set([
 const TIMELINE_ORIGINAL_COLORS_KEY = "__proxmoxTimelineOriginalColors";
 const TIMELINE_SIGNATURE_KEY = "__proxmoxTimelineSignature";
 const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
+const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
 
 const COLOR_FIELDS = [
   { name: "timeline_color_on" },
@@ -1498,6 +1507,10 @@ const TIMELINE_STYLE_TARGETS = {
     "--timeline-state-on-marker",
     "--timeline-color-on-background",
     "--timeline-state-on-background",
+    "--state-on-color",
+    "--state-active-color",
+    "--state-binary_sensor-on-color",
+    "--state-binary_sensor-active-color",
   ],
   off: [
     "--timeline-color-off",
@@ -1507,6 +1520,10 @@ const TIMELINE_STYLE_TARGETS = {
     "--timeline-state-off-marker",
     "--timeline-color-off-background",
     "--timeline-state-off-background",
+    "--state-off-color",
+    "--state-inactive-color",
+    "--state-binary_sensor-off-color",
+    "--state-binary_sensor-inactive-color",
   ],
   unknown: [
     "--timeline-color-unknown",
@@ -1516,6 +1533,12 @@ const TIMELINE_STYLE_TARGETS = {
     "--timeline-state-unknown-marker",
     "--timeline-color-unknown-background",
     "--timeline-state-unknown-background",
+    "--history-unknown-color",
+    "--history-unavailable-color",
+    "--state-unknown-color",
+    "--state-unavailable-color",
+    "--state-binary_sensor-unknown-color",
+    "--state-binary_sensor-unavailable-color",
   ],
 };
 
@@ -1534,6 +1557,116 @@ const TIMELINE_STYLE_BACKGROUND_TARGETS = {
   ],
 };
 
+const refreshStateHistoryTimeline = (timeline, signature) => {
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return false;
+  }
+
+  if (timeline[TIMELINE_ELEMENT_SIGNATURE_KEY] === signature) {
+    return false;
+  }
+
+  const currentData = timeline.data;
+  if (!Array.isArray(currentData)) {
+    timeline[TIMELINE_ELEMENT_SIGNATURE_KEY] = signature;
+    return false;
+  }
+
+  const cloned = currentData.map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return entry;
+    }
+    const clone = { ...entry };
+    if (Array.isArray(entry.data)) {
+      clone.data = entry.data.map((item) =>
+        item && typeof item === "object" ? { ...item } : item
+      );
+    }
+    return clone;
+  });
+
+  try {
+    timeline.data = cloned;
+  } catch (err) {
+    // Ignore write errors (read-only data bindings)
+  }
+
+  timeline[TIMELINE_ELEMENT_SIGNATURE_KEY] = signature;
+  return true;
+};
+
+const buildTimelineDynamicStyleTargets = (timeline) => {
+  const emptyTargets = {
+    [TIMELINE_STATE_ON]: [],
+    [TIMELINE_STATE_OFF]: [],
+    [TIMELINE_STATE_UNKNOWN]: [],
+  };
+
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return emptyTargets;
+  }
+
+  const hass = timeline.hass;
+  const data = Array.isArray(timeline.data) ? timeline.data : [];
+  const accumulator = {
+    [TIMELINE_STATE_ON]: new Set(),
+    [TIMELINE_STATE_OFF]: new Set(),
+    [TIMELINE_STATE_UNKNOWN]: new Set(),
+  };
+
+  const add = (stateKey, prop) => {
+    if (!prop) {
+      return;
+    }
+    accumulator[stateKey].add(prop);
+  };
+
+  data.forEach((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    const entityId = entry.entity_id;
+    if (!entityId || typeof entityId !== "string") {
+      return;
+    }
+    const domain = entityId.split(".")[0];
+    if (!domain) {
+      return;
+    }
+    const stateObj = hass?.states?.[entityId];
+    const deviceClassRaw = stateObj?.attributes?.device_class;
+    const deviceClass = deviceClassRaw ? slugify(deviceClassRaw) : "";
+
+    add(TIMELINE_STATE_ON, `--state-${domain}-on-color`);
+    add(TIMELINE_STATE_OFF, `--state-${domain}-off-color`);
+    add(TIMELINE_STATE_ON, `--state-${domain}-active-color`);
+    add(TIMELINE_STATE_OFF, `--state-${domain}-inactive-color`);
+    add(TIMELINE_STATE_UNKNOWN, `--state-${domain}-unknown-color`);
+    add(TIMELINE_STATE_UNKNOWN, `--state-${domain}-unavailable-color`);
+
+    if (deviceClass) {
+      add(
+        TIMELINE_STATE_ON,
+        `--state-${domain}-${deviceClass}-on-color`
+      );
+      add(
+        TIMELINE_STATE_OFF,
+        `--state-${domain}-${deviceClass}-off-color`
+      );
+      add(
+        TIMELINE_STATE_UNKNOWN,
+        `--state-${domain}-${deviceClass}-unknown-color`
+      );
+    }
+  });
+
+  return {
+    [TIMELINE_STATE_ON]: Array.from(accumulator[TIMELINE_STATE_ON]),
+    [TIMELINE_STATE_OFF]: Array.from(accumulator[TIMELINE_STATE_OFF]),
+    [TIMELINE_STATE_UNKNOWN]: Array.from(accumulator[TIMELINE_STATE_UNKNOWN]),
+  };
+};
+
 const applyTimelineColorsToTimelines = (elements, config) => {
   if (!elements?.length || !config) {
     return false;
@@ -1544,10 +1677,12 @@ const applyTimelineColorsToTimelines = (elements, config) => {
     if (!timeline) {
       return;
     }
+    let timelineChanged = false;
     if (!timeline[TIMELINE_ORIGINAL_STYLE_KEY]) {
       timeline[TIMELINE_ORIGINAL_STYLE_KEY] = {};
     }
     const originals = timeline[TIMELINE_ORIGINAL_STYLE_KEY];
+    const dynamicTargets = buildTimelineDynamicStyleTargets(timeline);
 
     const getColorForState = (stateKey) =>
       config.colors[stateKey] || config.fallback || "";
@@ -1557,16 +1692,23 @@ const applyTimelineColorsToTimelines = (elements, config) => {
     [TIMELINE_STATE_ON, TIMELINE_STATE_OFF, TIMELINE_STATE_UNKNOWN].forEach((stateKey) => {
       const colorValue = getColorForState(stateKey);
       const fillValue = getFillForState(stateKey);
-      const targets = TIMELINE_STYLE_TARGETS[stateKey];
+      const staticTargets = TIMELINE_STYLE_TARGETS[stateKey] || [];
+      const combinedTargets = Array.from(
+        new Set([...staticTargets, ...(dynamicTargets[stateKey] || [])])
+      );
       const fillTargets = TIMELINE_STYLE_BACKGROUND_TARGETS[stateKey];
 
-      targets.forEach((prop) => {
+      combinedTargets.forEach((prop) => {
         if (!(prop in originals)) {
           originals[prop] = timeline.style.getPropertyValue(prop);
         }
         if (colorValue) {
           timeline.style.setProperty(prop, colorValue);
+          timelineChanged = true;
         } else {
+          if (timeline.style.getPropertyValue(prop)) {
+            timelineChanged = true;
+          }
           timeline.style.removeProperty(prop);
         }
       });
@@ -1577,13 +1719,26 @@ const applyTimelineColorsToTimelines = (elements, config) => {
         }
         if (fillValue) {
           timeline.style.setProperty(prop, fillValue);
+          timelineChanged = true;
         } else {
+          if (timeline.style.getPropertyValue(prop)) {
+            timelineChanged = true;
+          }
           timeline.style.removeProperty(prop);
         }
       });
     });
 
-    applied = true;
+    if (
+      timeline.tagName === "STATE-HISTORY-CHART-TIMELINE" &&
+      refreshStateHistoryTimeline(timeline, config.signature)
+    ) {
+      timelineChanged = true;
+    }
+
+    if (timelineChanged) {
+      applied = true;
+    }
   });
 
   return applied;
@@ -1607,7 +1762,9 @@ const resetTimelineElementStyles = (elements) => {
         timeline.style.removeProperty(prop);
       }
     });
+    refreshStateHistoryTimeline(timeline, undefined);
     delete timeline[TIMELINE_ORIGINAL_STYLE_KEY];
+    delete timeline[TIMELINE_ELEMENT_SIGNATURE_KEY];
     changed = true;
   });
   return changed;
@@ -1801,6 +1958,7 @@ const collectTimelineElements = (element) => {
   const visited = new Set();
   const queue = [];
   const timelines = [];
+  const selectors = ["ha-timeline", "state-history-chart-timeline"];
 
   const enqueue = (root) => {
     if (root && !visited.has(root)) {
@@ -1820,7 +1978,11 @@ const collectTimelineElements = (element) => {
     if (!root || typeof root.querySelectorAll !== "function") {
       continue;
     }
-    root.querySelectorAll("ha-timeline").forEach((timeline) => timelines.push(timeline));
+    selectors.forEach((selector) => {
+      root
+        .querySelectorAll(selector)
+        .forEach((timeline) => timelines.push(timeline));
+    });
     root.querySelectorAll("*").forEach((node) => {
       if (node.shadowRoot) {
         enqueue(node.shadowRoot);
