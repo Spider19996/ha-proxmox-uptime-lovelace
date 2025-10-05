@@ -2438,15 +2438,20 @@ if (!customElements.get("proxmox-uptime-card")) {
         });
 
         const signature = JSON.stringify({ data: signaturePayload });
-        if (timelineEl.dataset.proxmoxLayoutSignature === signature) {
+        const existingLabels = timelineRoot.querySelectorAll(
+          ".proxmox-timeline-inline-label"
+        );
+        const labelsArePresent = existingLabels.length >= timelineRows.length;
+        if (
+          timelineEl.dataset.proxmoxLayoutSignature === signature &&
+          labelsArePresent
+        ) {
           return;
         }
 
         timelineEl.dataset.proxmoxLayoutSignature = signature;
 
-        timelineRoot
-          .querySelectorAll(".proxmox-timeline-inline-label")
-          .forEach((label) => label.remove());
+        existingLabels.forEach((label) => label.remove());
 
         timelineRows.forEach((rowEl, index) => {
           const parent = rowEl?.parentElement;
