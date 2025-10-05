@@ -2150,6 +2150,8 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._lastTimelineSignature = "";
       this._legendContainer = undefined;
       this._legendData = [];
+      this._legendLayoutFrame = undefined;
+      this._legendLayoutSignature = "";
       this._styleElement = undefined;
     }
 
@@ -2209,7 +2211,21 @@ if (!customElements.get("proxmox-uptime-card")) {
       }
     }
 
+    connectedCallback() {
+      if (super.connectedCallback) {
+        super.connectedCallback();
+      }
+      if (!this._legendResizeHandler) {
+        this._legendResizeHandler = () => this._scheduleLegendLayoutUpdate();
+      }
+      window.addEventListener("resize", this._legendResizeHandler);
+      this._scheduleLegendLayoutUpdate();
+    }
+
     disconnectedCallback() {
+      if (this._legendResizeHandler) {
+        window.removeEventListener("resize", this._legendResizeHandler);
+      }
       this._clearTimelineColorTimeout();
     }
 
@@ -2235,12 +2251,18 @@ if (!customElements.get("proxmox-uptime-card")) {
             display: flex;
             flex-direction: column;
             gap: 16px;
+            position: relative;
+            padding-top: 16px;
           }
 
           .proxmox-uptime-legend {
             display: flex;
             flex-direction: column;
             gap: 12px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            pointer-events: none;
           }
 
           .proxmox-uptime-legend[hidden] {
@@ -2252,6 +2274,7 @@ if (!customElements.get("proxmox-uptime-card")) {
             align-items: center;
             gap: 8px;
             min-height: 28px;
+            pointer-events: auto;
           }
 
           .proxmox-uptime-legend-icon {
@@ -2341,11 +2364,16 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       if (!showNames || !data.length) {
         this._legendContainer.hidden = true;
+        this._legendLayoutSignature = "";
+        if (this._cardWrapper) {
+          this._cardWrapper.style.paddingTop = "16px";
+        }
         return;
       }
 
       this._legendContainer.hidden = false;
 
+      const rows = [];
       data.forEach((entry) => {
         const entityId = getEntityIdFromEntry(entry);
         if (!entityId) {
@@ -2353,6 +2381,7 @@ if (!customElements.get("proxmox-uptime-card")) {
         }
         const row = document.createElement("div");
         row.className = "proxmox-uptime-legend-row";
+        row.dataset.entityId = entityId;
 
         const iconWrapper = document.createElement("div");
         iconWrapper.className = "proxmox-uptime-legend-icon";
@@ -2375,8 +2404,136 @@ if (!customElements.get("proxmox-uptime-card")) {
         );
 
         row.append(iconWrapper, nameElement);
+        rows.push(row);
         this._legendContainer.append(row);
       });
+
+      if (rows.length) {
+        this._scheduleLegendLayoutUpdate();
+      }
+    }
+
+    _scheduleLegendLayoutUpdate() {
+      if (this._legendLayoutFrame) {
+        cancelAnimationFrame(this._legendLayoutFrame);
+      }
+      this._legendLayoutFrame = requestAnimationFrame(() => {
+        this._legendLayoutFrame = undefined;
+        this._updateLegendLayout();
+      });
+    }
+
+    _updateLegendLayout() {
+      if (!this._legendContainer || this._legendContainer.hidden) {
+        return;
+      }
+
+      const legendRows = Array.from(this._legendContainer.children || []);
+      if (!legendRows.length) {
+        return;
+      }
+
+      const host = this._cardWrapper || this._card;
+      if (!host) {
+        return;
+      }
+
+      const timelineElements = collectTimelineElements(host);
+      const timeline = timelineElements.find(
+        (el) => el?.tagName === "STATE-HISTORY-CHART-TIMELINE"
+      ) || timelineElements[0];
+
+      if (!timeline || !timeline.shadowRoot) {
+        return;
+      }
+
+      const chartBase = timeline.shadowRoot.querySelector("ha-chart-base");
+      if (!chartBase) {
+        return;
+      }
+
+      const rowCount = legendRows.length;
+      if (!rowCount) {
+        return;
+      }
+
+      const desiredRowHeight = 60;
+      const desiredHeight = rowCount * desiredRowHeight + 40;
+      const desiredHeightValue = `${desiredHeight}px`;
+
+      if (chartBase.height !== desiredHeightValue) {
+        chartBase.height = desiredHeightValue;
+        if (typeof chartBase.chart?.resize === "function") {
+          chartBase.chart.resize();
+        }
+      }
+
+      const chart = chartBase.chart;
+      if (!chart) {
+        this._scheduleLegendLayoutUpdate();
+        return;
+      }
+
+      const gridComponent = chart.getModel()?.getComponent("grid");
+      const coordRect =
+        gridComponent?.coordinateSystem?.getRect?.() ||
+        gridComponent?.getRect?.();
+
+      if (!coordRect) {
+        return;
+      }
+
+      const wrapperRect = this._cardWrapper?.getBoundingClientRect();
+      const chartRect = chartBase.getBoundingClientRect();
+
+      if (!wrapperRect) {
+        return;
+      }
+
+      const topOffset = chartRect.top - wrapperRect.top;
+      const leftOffset = chartRect.left - wrapperRect.left;
+
+      const legendGap = 16;
+      let legendTop = topOffset + coordRect.y - legendGap;
+      if (legendTop < 0) {
+        legendTop = 0;
+      }
+
+      const nextSignature = [
+        rowCount,
+        desiredHeightValue,
+        Math.round(legendTop),
+        Math.round(coordRect.width),
+      ].join(":");
+      if (nextSignature === this._legendLayoutSignature) {
+        return;
+      }
+
+      this._legendContainer.style.display = "grid";
+      this._legendContainer.style.gridTemplateRows = `repeat(${rowCount}, 1fr)`;
+      this._legendContainer.style.rowGap = `${legendGap}px`;
+      this._legendContainer.style.left = `${Math.max(
+        0,
+        leftOffset + coordRect.x
+      )}px`;
+      this._legendContainer.style.width = `${coordRect.width}px`;
+      this._legendContainer.style.top = `${legendTop}px`;
+      this._legendContainer.style.height = `${coordRect.height + legendGap}px`;
+      this._legendContainer.style.pointerEvents = "none";
+
+      this._cardWrapper.style.paddingTop = `${legendTop + legendGap}px`;
+
+      legendRows.forEach((row) => {
+        row.style.position = "relative";
+        row.style.pointerEvents = "auto";
+      });
+
+      this._legendLayoutSignature = [
+        rowCount,
+        desiredHeightValue,
+        legendTop,
+        coordRect.width,
+      ].join(":");
     }
 
 
@@ -2492,6 +2649,9 @@ if (!customElements.get("proxmox-uptime-card")) {
       if (resetTimelineElementStyles(timelineElements)) {
         changed = true;
       }
+      if (changed) {
+        this._scheduleLegendLayoutUpdate();
+      }
       return changed;
     }
 
@@ -2561,6 +2721,10 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       if (applyTimelineColorsToTimelines(timelineElements, colorConfig)) {
         applied = true;
+      }
+
+      if (applied) {
+        this._scheduleLegendLayoutUpdate();
       }
 
       return applied;
@@ -2699,6 +2863,11 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._cardWrapper = undefined;
       this._legendContainer = undefined;
       this._legendData = [];
+      if (this._legendLayoutFrame) {
+        cancelAnimationFrame(this._legendLayoutFrame);
+        this._legendLayoutFrame = undefined;
+      }
+      this._legendLayoutSignature = "";
       this._clearTimelineColorTimeout();
       this._lastTimelineSignature = "";
     }
