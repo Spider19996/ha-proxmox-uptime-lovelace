@@ -2377,6 +2377,7 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
     const availableHeight = Math.max(0, totalHeight - gridTop - gridBottom);
     const rowCount = data.length;
     const rowSpan = rowCount ? availableHeight / rowCount : 0;
+    const barHeight = 20;
     const labelGap = 6;
 
     const labels = data
@@ -2394,8 +2395,10 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
           prettifyEntityId(entityId);
         const icon =
           entityInfo?.icon || hassState?.attributes?.icon || "mdi:server";
-        const rowTop = gridTop + rowSpan * index;
-        const top = Math.max(0, rowTop - labelGap);
+        const rowCenter = gridTop + rowSpan * index + rowSpan / 2;
+        const barOffset = Math.min(rowSpan / 2, barHeight / 2);
+        const baseline = rowCenter - barOffset - labelGap;
+        const top = Math.max(0, baseline);
         return { entityId, name, icon, top };
       })
       .filter(Boolean);
