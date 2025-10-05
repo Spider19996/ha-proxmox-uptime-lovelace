@@ -2311,6 +2311,28 @@ if (!customElements.get("proxmox-uptime-card")) {
             labels.forEach((label) => label.remove());
             removed = true;
           }
+          const rowContainers = timelineRoot.querySelectorAll(
+            ".proxmox-timeline-row"
+          );
+          rowContainers.forEach((rowContainer) => {
+            const host = rowContainer.parentElement;
+            if (!host) {
+              return;
+            }
+            Array.from(rowContainer.childNodes).forEach((child) => {
+              if (
+                child.nodeType === Node.ELEMENT_NODE &&
+                child.classList?.contains("proxmox-timeline-inline-label")
+              ) {
+                child.remove();
+                removed = true;
+              } else {
+                host.insertBefore(child, rowContainer);
+                removed = true;
+              }
+            });
+            rowContainer.remove();
+          });
           removeLayoutStyle(timelineRoot);
         }
 
@@ -2338,6 +2360,12 @@ if (!customElements.get("proxmox-uptime-card")) {
       style.setAttribute("data-proxmox-timeline-layout", "true");
       style.textContent = `
         .proxmox-timeline-container {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .proxmox-timeline-row {
           display: flex;
           flex-direction: column;
           align-items: stretch;
@@ -2458,6 +2486,22 @@ if (!customElements.get("proxmox-uptime-card")) {
           if (!parent) {
             return;
           }
+          let rowContainer;
+          if (parent.classList?.contains("proxmox-timeline-row")) {
+            rowContainer = parent;
+          } else {
+            rowContainer = document.createElement("div");
+            rowContainer.className = "proxmox-timeline-row";
+            parent.insertBefore(rowContainer, rowEl);
+            rowContainer.append(rowEl);
+          }
+
+          Array.from(
+            rowContainer.querySelectorAll(
+              ":scope > .proxmox-timeline-inline-label"
+            )
+          ).forEach((label) => label.remove());
+
           const entryInfo = signaturePayload[index] || {};
           const labelRow = document.createElement("div");
           labelRow.className = "proxmox-timeline-inline-label";
@@ -2470,7 +2514,7 @@ if (!customElements.get("proxmox-uptime-card")) {
           textEl.textContent = entryInfo.name || entryInfo.id || "";
           labelRow.append(textEl);
 
-          parent.insertBefore(labelRow, rowEl);
+          rowContainer.insertBefore(labelRow, rowEl);
         });
 
         applied = true;
