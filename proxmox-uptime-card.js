@@ -1004,6 +1004,12 @@ const TIMELINE_STATE_ON = "on";
 const TIMELINE_STATE_OFF = "off";
 const TIMELINE_STATE_UNKNOWN = "unknown";
 
+const TIMELINE_DEFAULT_COLORS = {
+  [TIMELINE_STATE_ON]: "#4caf50",
+  [TIMELINE_STATE_UNKNOWN]: "#ffeb3b",
+  [TIMELINE_STATE_OFF]: "#f44336",
+};
+
 const TIMELINE_ON_ALIASES = new Set([
   "on",
   "open",
@@ -2131,15 +2137,25 @@ if (!customElements.get("proxmox-uptime-card")) {
         : "";
       const legacyColor = rawLegacy ? normalizeCssColor(rawLegacy).trim() : "";
 
-      const colorOn = resolvedOn || legacyColor;
-      const colorOff = resolvedOff || legacyColor;
-      const colorUnknown = resolvedUnknown || legacyColor;
+      const colorOn =
+        resolvedOn || legacyColor || TIMELINE_DEFAULT_COLORS[TIMELINE_STATE_ON];
+      const colorOff =
+        resolvedOff || legacyColor || TIMELINE_DEFAULT_COLORS[TIMELINE_STATE_OFF];
+      const colorUnknown =
+        resolvedUnknown ||
+        legacyColor ||
+        TIMELINE_DEFAULT_COLORS[TIMELINE_STATE_UNKNOWN];
 
       if (!colorOn && !colorOff && !colorUnknown) {
         return null;
       }
 
-      const fallbackColor = legacyColor;
+      const fallbackColor =
+        legacyColor ||
+        colorUnknown ||
+        colorOn ||
+        colorOff ||
+        undefined;
       const normalized = {
         on: colorOn || undefined,
         off: colorOff || undefined,
