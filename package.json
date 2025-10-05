@@ -1,6 +1,6 @@
 {
   "name": "ha-proxmox-uptime-lovelace",
-  "version": "1.0.0",
+  "version": "2.0.1",
   "description": "A Lovelace card that displays the uptime of Proxmox nodes.",
   "main": "proxmox-uptime-card.js",
   "type": "module",

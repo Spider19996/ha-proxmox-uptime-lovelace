@@ -2,7 +2,7 @@
 
 🇩🇪 [Deutsche Version lesen](README.de.md)
 
-Custom Lovelace card for Home Assistant that visualises the uptime of Proxmox nodes, VMs, and LXC containers based on the sensors exposed by the Proxmox integration.
+Custom Lovelace card for Home Assistant that renders the standard history timeline for Proxmox nodes, VMs, and LXC containers based on the binary sensors exposed by the Proxmox integration.
 
 ## Installation
 
@@ -16,6 +16,4 @@ Custom Lovelace card for Home Assistant that visualises the uptime of Proxmox no
 
 ## Attribution
 
-Portions of this project are derived from the [Home Assistant History Graph Card](https://github.com/home-assistant/frontend/blob/dev/src/panels/lovelace/cards/hui-history-graph-card.ts),
-Copyright © 2013&ndash;2024 The Home Assistant Authors, and are licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-The adapted sections remain subject to the Apache License 2.0 in addition to this project's own licensing.
+This project wraps the upstream [Home Assistant History Graph Card](https://github.com/home-assistant/frontend/blob/dev/src/panels/lovelace/cards/hui-history-graph-card.ts) and forwards its configuration so that uptime sensors are displayed without additional manual setup.

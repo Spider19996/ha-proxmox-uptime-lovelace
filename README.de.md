@@ -2,7 +2,7 @@
 
 🇬🇧 [Read English version](README.md)
 
-Custom Lovelace card für Home Assistant, die die Laufzeiten von Proxmox-Knoten, VMs und LXC-Containern basierend auf den Sensoren der Proxmox-Integration visualisiert.
+Custom Lovelace Card für Home Assistant, die den normalen History-Zeitstrahl für Proxmox-Knoten, VMs und LXC-Container basierend auf den Binary-Sensoren der Proxmox-Integration anzeigt.
 
 ## Installation
 
@@ -16,4 +16,4 @@ Custom Lovelace card für Home Assistant, die die Laufzeiten von Proxmox-Knoten,
 
 ## Entwicklung
 
-Die Card wird ohne zusätzliche UI-Frameworks implementiert und über `defineCustomElement` als `proxmox-uptime-card` registriert.
+Die Card kapselt die bestehende History-Graph-Implementierung aus Home Assistant und reicht die relevanten Optionen automatisiert weiter.
