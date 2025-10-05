@@ -1268,6 +1268,8 @@ const TIMELINE_SIGNATURE_KEY = "__proxmoxTimelineSignature";
 const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
 const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
 const TIMELINE_VISIBILITY_KEY = "__proxmoxTimelineVisibility";
+const TIMELINE_VISIBILITY_MODE_AXIS = "axis";
+const TIMELINE_VISIBILITY_MODE_STYLE = "style";
 
 const COLOR_FIELDS = [
   { name: "timeline_color_on" },
@@ -1900,6 +1902,175 @@ const buildTimelineDynamicStyleTargets = (timeline) => {
   };
 };
 
+const resolveTimelineChartBase = (timeline) => {
+  if (!timeline) {
+    return undefined;
+  }
+
+  const searchRoots = [];
+  if (timeline.shadowRoot) {
+    searchRoots.push(timeline.shadowRoot);
+  }
+  if (typeof timeline.querySelector === "function") {
+    searchRoots.push(timeline);
+  }
+
+  for (const root of searchRoots) {
+    const chartBase = root.querySelector
+      ? root.querySelector("ha-chart-base")
+      : undefined;
+    if (chartBase) {
+      return chartBase;
+    }
+  }
+  return undefined;
+};
+
+const resolveTimelineChartInstance = (timeline) => {
+  const chartBase = resolveTimelineChartBase(timeline);
+  if (!chartBase) {
+    return undefined;
+  }
+  return (
+    chartBase.chart ||
+    chartBase._chart ||
+    (typeof chartBase.getChart === "function" ? chartBase.getChart() : undefined)
+  );
+};
+
+const ensureTimelineVisibilityStore = (timeline) => {
+  if (!timeline[TIMELINE_VISIBILITY_KEY]) {
+    timeline[TIMELINE_VISIBILITY_KEY] = {};
+  }
+  return timeline[TIMELINE_VISIBILITY_KEY];
+};
+
+const hideTimelineUsingAxis = (timeline) => {
+  const chart = resolveTimelineChartInstance(timeline);
+  if (!chart || typeof chart.setOption !== "function") {
+    return false;
+  }
+
+  const store = ensureTimelineVisibilityStore(timeline);
+  if (!store.axis || store.mode !== TIMELINE_VISIBILITY_MODE_AXIS) {
+    const options =
+      typeof chart.getOption === "function" ? chart.getOption() : undefined;
+    const xAxisOptions = Array.isArray(options?.xAxis)
+      ? options.xAxis[0]
+      : options?.xAxis;
+    const gridOptions = Array.isArray(options?.grid)
+      ? options.grid[0]
+      : options?.grid;
+
+    store.axis = {
+      axisLabelShow:
+        typeof xAxisOptions?.axisLabel?.show === "boolean"
+          ? xAxisOptions.axisLabel.show
+          : undefined,
+      axisTickShow:
+        typeof xAxisOptions?.axisTick?.show === "boolean"
+          ? xAxisOptions.axisTick.show
+          : undefined,
+      gridBottom:
+        gridOptions && gridOptions.bottom !== undefined
+          ? gridOptions.bottom
+          : undefined,
+    };
+  }
+
+  store.mode = TIMELINE_VISIBILITY_MODE_AXIS;
+
+  if (store.style && timeline.style.getPropertyValue("display") === "none") {
+    const originalDisplay = store.style.display;
+    if (originalDisplay) {
+      timeline.style.setProperty("display", originalDisplay);
+    } else {
+      timeline.style.removeProperty("display");
+    }
+  }
+
+  chart.setOption({
+    xAxis: [
+      {
+        axisLabel: { show: false },
+        axisTick: { show: false },
+      },
+    ],
+    grid: [
+      {
+        bottom: 4,
+      },
+    ],
+  });
+
+  return true;
+};
+
+const showTimelineUsingAxis = (timeline) => {
+  const store = timeline[TIMELINE_VISIBILITY_KEY];
+  if (!store?.axis) {
+    return false;
+  }
+  const chart = resolveTimelineChartInstance(timeline);
+  if (!chart || typeof chart.setOption !== "function") {
+    return false;
+  }
+
+  const axisLabelShow =
+    store.axis.axisLabelShow !== undefined ? store.axis.axisLabelShow : true;
+  const axisTickShow =
+    store.axis.axisTickShow !== undefined ? store.axis.axisTickShow : true;
+  const gridBottom =
+    store.axis.gridBottom !== undefined ? store.axis.gridBottom : 30;
+
+  chart.setOption({
+    xAxis: [
+      {
+        axisLabel: { show: axisLabelShow },
+        axisTick: { show: axisTickShow },
+      },
+    ],
+    grid: [
+      {
+        bottom: gridBottom,
+      },
+    ],
+  });
+
+  delete timeline[TIMELINE_VISIBILITY_KEY];
+  return true;
+};
+
+const hideTimelineUsingStyle = (timeline) => {
+  const store = ensureTimelineVisibilityStore(timeline);
+  if (!store.style) {
+    store.style = {
+      display: timeline.style.getPropertyValue("display"),
+    };
+  }
+  store.mode = TIMELINE_VISIBILITY_MODE_STYLE;
+  if (timeline.style.getPropertyValue("display") !== "none") {
+    timeline.style.setProperty("display", "none");
+  }
+  return true;
+};
+
+const showTimelineUsingStyle = (timeline) => {
+  const store = timeline[TIMELINE_VISIBILITY_KEY];
+  if (!store?.style) {
+    return false;
+  }
+  const originalDisplay = store.style.display;
+  if (originalDisplay) {
+    timeline.style.setProperty("display", originalDisplay);
+  } else {
+    timeline.style.removeProperty("display");
+  }
+
+  delete timeline[TIMELINE_VISIBILITY_KEY];
+  return true;
+};
+
 const applyTimelineVisibility = (elements, showTimeline) => {
   if (!elements?.length) {
     return false;
@@ -1912,27 +2083,11 @@ const applyTimelineVisibility = (elements, showTimeline) => {
     }
     found = true;
     if (showTimeline) {
-      const original = timeline[TIMELINE_VISIBILITY_KEY];
-      const originalDisplay = original ? original.display : undefined;
-      if (original) {
-        if (originalDisplay) {
-          timeline.style.setProperty("display", originalDisplay);
-        } else {
-          timeline.style.removeProperty("display");
-        }
-        delete timeline[TIMELINE_VISIBILITY_KEY];
-      } else if (timeline.style.getPropertyValue("display") === "none") {
-        timeline.style.removeProperty("display");
+      if (!showTimelineUsingAxis(timeline)) {
+        showTimelineUsingStyle(timeline);
       }
-    } else {
-      if (!timeline[TIMELINE_VISIBILITY_KEY]) {
-        timeline[TIMELINE_VISIBILITY_KEY] = {
-          display: timeline.style.getPropertyValue("display"),
-        };
-      }
-      if (timeline.style.getPropertyValue("display") !== "none") {
-        timeline.style.setProperty("display", "none");
-      }
+    } else if (!hideTimelineUsingAxis(timeline)) {
+      hideTimelineUsingStyle(timeline);
     }
   });
 
