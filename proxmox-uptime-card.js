@@ -2337,22 +2337,32 @@ if (!customElements.get("proxmox-uptime-card")) {
       style.setAttribute("data-proxmox-timeline-layout", "true");
       style.textContent = `
         .proxmox-timeline-inline-label {
-          display: inline-flex;
+          display: flex;
           align-items: center;
           gap: 10px;
+          grid-column: 1 / -1;
           color: var(
-            --proxmox-label-accent,
-            var(--primary-text-color, var(--secondary-text-color, currentColor))
+            --primary-text-color,
+            var(--secondary-text-color, currentColor)
           );
           font-weight: 500;
-          font-size: 0.95rem;
-          line-height: 1.2;
-          padding-inline: 2px;
-          margin-block: 10px 4px;
+          font-size: var(--mdc-typography-body1-font-size, 0.95rem);
+          line-height: 1.4;
+          padding-inline: 4px;
+          margin-block: 10px 2px;
+          opacity: 1;
+          visibility: visible;
+          border-inline-start: 3px solid
+            var(--proxmox-label-accent, transparent);
+          padding-inline-start: calc(4px + 2px);
         }
 
         .proxmox-timeline-inline-label:first-child {
           margin-block-start: 0;
+        }
+
+        .proxmox-timeline-inline-label + ha-timeline {
+          margin-block-start: 4px;
         }
 
         ha-timeline + .proxmox-timeline-inline-label {
@@ -2363,8 +2373,16 @@ if (!customElements.get("proxmox-uptime-card")) {
           --mdc-icon-size: 20px;
           color: var(
             --proxmox-label-accent,
-            var(--primary-text-color, var(--secondary-text-color, currentColor))
+            var(--state-on-color, currentColor)
           );
+        }
+
+        .proxmox-timeline-inline-label span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          flex: 1 1 auto;
+          min-width: 0;
         }
       `;
       styleRoot.append(style);
