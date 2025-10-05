@@ -25,6 +25,20 @@ entities:
   - sensor.proxmox_host_uptime
 ```
 
+### Friendly names and icons
+
+Override the displayed label and icon per sensor either via the visual editor or YAML:
+
+```yaml
+type: custom:proxmox-uptime-card
+names:
+  binary_sensor.node_alpha_status: Proxmox Node Alpha
+icons:
+  binary_sensor.node_alpha_status: mdi:server
+```
+
+Sensor names are shown above each timeline with the configured icon on the left.
+
 ## Attribution
 
 This project wraps the upstream [Home Assistant History Graph Card](https://github.com/home-assistant/frontend/blob/dev/src/panels/lovelace/cards/hui-history-graph-card.ts) and forwards its configuration so that uptime sensors are displayed without additional manual setup.

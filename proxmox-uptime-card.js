@@ -1,4 +1,4 @@
-const CARD_VERSION = "2.2.0";
+const CARD_VERSION = "2.3.0";
 const DEFAULT_FILTER = [
   "binary_sensor.node_.*_status",
   "binary_sensor.vm_.*_status",
@@ -49,7 +49,7 @@ const ensureEditorElementRegistered = () => {
   const EDITOR_TABS = [
     {
       key: "general",
-      fields: ["title", "entities", "show_all", "names_raw"],
+      fields: ["title", "entities", "show_all", "names_raw", "icons_raw"],
     },
     {
       key: "filters",
@@ -81,6 +81,7 @@ const ensureEditorElementRegistered = () => {
         exclude: "Exclude pattern",
         language_mode: "Language",
         names_raw: "Friendly names",
+        icons_raw: "Icons",
         show_all: "Show all entities",
         hours_to_show: "Hours to show",
         show_names: "Show legend names",
@@ -96,6 +97,7 @@ const ensureEditorElementRegistered = () => {
         exclude: "Ausschlussmuster",
         language_mode: "Sprache",
         names_raw: "Freundliche Namen",
+        icons_raw: "Icons",
         show_all: "Alle Entitäten anzeigen",
         hours_to_show: "Anzuzeigende Stunden",
         show_names: "Legendenamen anzeigen",
@@ -112,6 +114,8 @@ const ensureEditorElementRegistered = () => {
         exclude: "Patterns to exclude (one per line).",
         language_mode: "Select a fixed editor language or follow Home Assistant.",
         names_raw: "Use 'entity_id = Friendly Name' per line to override names.",
+        icons_raw:
+          "Use 'entity_id = mdi:icon-name' per line to override icons.",
         show_all:
           "Remove the Proxmox integration filter when picking binary sensors.",
         name_filters:
@@ -129,6 +133,8 @@ const ensureEditorElementRegistered = () => {
         language_mode: "Feste Editor-Sprache wählen oder Home Assistant folgen.",
         names_raw:
           "'entity_id = Anzeigename' pro Zeile für Namensüberschreibungen.",
+        icons_raw:
+          "'entity_id = mdi:icon-name' pro Zeile für Icon-Überschreibungen.",
         show_all:
           "Entfernt den Proxmox-Filter bei der Auswahl von Binary-Sensoren.",
         name_filters:
@@ -223,6 +229,7 @@ const ensureEditorElementRegistered = () => {
       },
     }),
     names_raw: () => ({ name: "names_raw", selector: { text: { multiline: true } } }),
+    icons_raw: () => ({ name: "icons_raw", selector: { text: { multiline: true } } }),
     hours_to_show: () => ({ name: "hours_to_show", selector: { number: { min: 1 } } }),
     show_names: () => ({ name: "show_names", selector: { boolean: {} } }),
     name_filters: () => ({ name: "name_filters", selector: { text: { multiline: true } } }),
@@ -328,6 +335,38 @@ const ensureEditorElementRegistered = () => {
     return Object.keys(entries).length ? entries : undefined;
   };
 
+  const serializeIcons = (icons) => {
+    if (!icons) {
+      return "";
+    }
+    return Object.entries(icons)
+      .map(([entity, icon]) => `${entity} = ${icon}`)
+      .join("\n");
+  };
+
+  const parseIcons = (value) => {
+    if (!value) {
+      return undefined;
+    }
+    const entries = {};
+    String(value)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const separatorIndex = line.indexOf("=");
+        if (separatorIndex === -1) {
+          return;
+        }
+        const entity = line.slice(0, separatorIndex).trim();
+        const icon = line.slice(separatorIndex + 1).trim();
+        if (entity && icon) {
+          entries[entity] = icon;
+        }
+      });
+    return Object.keys(entries).length ? entries : undefined;
+  };
+
   const toNumber = (value) => {
     if (value === null || value === undefined || value === "") {
       return undefined;
@@ -344,6 +383,7 @@ const ensureEditorElementRegistered = () => {
     "show_all",
     "names",
     "name_filters",
+    "icons",
     "hours_to_show",
     "show_names",
     "language",
@@ -428,6 +468,7 @@ const ensureEditorElementRegistered = () => {
         exclude: serializePatternList(config.exclude),
         language_mode: config.language || LANGUAGE_AUTO,
         names_raw: serializeNames(config.names),
+        icons_raw: serializeIcons(config.icons),
         show_all: config.show_all || false,
         hours_to_show: config.hours_to_show,
         show_names: config.show_names ?? true,
@@ -830,6 +871,11 @@ const ensureEditorElementRegistered = () => {
         config.names = names;
       }
 
+      const icons = parseIcons(form.icons_raw);
+      if (icons) {
+        config.icons = icons;
+      }
+
       const hoursToShow = toNumber(form.hours_to_show);
       if (hoursToShow !== undefined) {
         config.hours_to_show = hoursToShow;
@@ -1041,6 +1087,8 @@ const TIMELINE_ORIGINAL_COLORS_KEY = "__proxmoxTimelineOriginalColors";
 const TIMELINE_SIGNATURE_KEY = "__proxmoxTimelineSignature";
 const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
 const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
+const TIMELINE_LABEL_OVERLAY_CLASS = "proxmox-timeline-label-overlay";
+const TIMELINE_LABEL_SIGNATURE_KEY = "__proxmoxTimelineLabelSignature";
 
 const COLOR_FIELDS = [
   { name: "timeline_color_on" },
@@ -1823,17 +1871,60 @@ const computeEntities = (hass, config) => {
     return [];
   }
 
-  const providedEntitiesRaw = toArray(config.entities).filter(Boolean);
-  const providedEntities = filterBinarySensorEntries(providedEntitiesRaw);
-  if (providedEntities.length) {
-    return providedEntities;
-  }
-
-  const excludePatterns = toArray(config.exclude).map((value) => toRegExp(value));
   const overrides = config.names || {};
+  const iconOverrides = config.icons || {};
   const nameFilters = toArray(config.name_filters)
     .map((value) => String(value).trim())
     .filter(Boolean);
+
+  const providedEntitiesRaw = toArray(config.entities).filter(Boolean);
+  const providedEntities = filterBinarySensorEntries(providedEntitiesRaw);
+  if (providedEntities.length) {
+    const manualEntities = providedEntities
+      .map((entry) => {
+        const entityId = getEntityIdFromEntry(entry);
+        if (!entityId) {
+          return null;
+        }
+        const state = hass.states?.[entityId];
+        const entryName =
+          typeof entry === "object" && entry?.name
+            ? String(entry.name).trim()
+            : "";
+        const overrideNameRaw = overrides[entityId];
+        const overrideName =
+          overrideNameRaw !== undefined && overrideNameRaw !== null
+            ? String(overrideNameRaw).trim()
+            : "";
+        const baseName =
+          entryName ||
+          state?.attributes?.friendly_name ||
+          prettifyEntityId(entityId);
+        const filteredName = applyNameFilters(
+          overrideName || baseName,
+          nameFilters
+        );
+        const resolvedName = filteredName || baseName;
+        const entryIcon =
+          typeof entry === "object" && entry?.icon
+            ? String(entry.icon).trim()
+            : "";
+        const overrideIconRaw = iconOverrides[entityId];
+        const overrideIcon =
+          overrideIconRaw !== undefined && overrideIconRaw !== null
+            ? String(overrideIconRaw).trim()
+            : "";
+        const stateIcon = state?.attributes?.icon
+          ? String(state.attributes.icon).trim()
+          : "";
+        const resolvedIcon = overrideIcon || entryIcon || stateIcon || "mdi:server";
+        return { entity: entityId, name: resolvedName, icon: resolvedIcon };
+      })
+      .filter(Boolean);
+    return manualEntities;
+  }
+
+  const excludePatterns = toArray(config.exclude).map((value) => toRegExp(value));
   const states = Object.values(hass.states || {});
 
   const includePatterns = toArray(config.match ?? DEFAULT_FILTER).map((value) =>
@@ -1901,6 +1992,24 @@ const computeEntities = (hass, config) => {
     return baseName;
   };
 
+  const resolveIcon = (state) => {
+    const override = iconOverrides[state.entity_id];
+    if (override !== undefined && override !== null) {
+      const iconValue = String(override).trim();
+      if (iconValue) {
+        return iconValue;
+      }
+    }
+    const attrIcon = state.attributes?.icon;
+    if (attrIcon) {
+      const iconValue = String(attrIcon).trim();
+      if (iconValue) {
+        return iconValue;
+      }
+    }
+    return "mdi:server";
+  };
+
   binaryStates.sort((a, b) => {
     const nameA = resolveBaseName(a);
     const nameB = resolveBaseName(b);
@@ -1917,6 +2026,7 @@ const computeEntities = (hass, config) => {
   return limitedStates.map((state) => ({
     entity: state.entity_id,
     name: resolveDisplayName(state),
+    icon: resolveIcon(state),
   }));
 };
 
@@ -1999,19 +2109,217 @@ const collectTimelineElements = (element) => {
   return timelines;
 };
 
+const createTimelineLabelOverlay = (container) => {
+  const overlay = document.createElement("div");
+  overlay.className = TIMELINE_LABEL_OVERLAY_CLASS;
+  overlay.style.position = "absolute";
+  overlay.style.top = "0";
+  overlay.style.left = "0";
+  overlay.style.right = "0";
+  overlay.style.bottom = "0";
+  overlay.style.pointerEvents = "none";
+  overlay.style.display = "block";
+  overlay.style.zIndex = "2";
+  container.appendChild(overlay);
+  return overlay;
+};
+
+const applyTimelineLabelsToTimelines = (timelines, options) => {
+  if (!timelines?.length) {
+    return false;
+  }
+
+  const showNames = !!options?.showNames;
+  const entityInfoMap = new Map();
+  if (Array.isArray(options?.entities)) {
+    options.entities.forEach((entry) => {
+      if (entry && entry.entity) {
+        entityInfoMap.set(entry.entity, entry);
+      }
+    });
+  }
+  let changed = false;
+
+  timelines.forEach((timeline) => {
+    if (!timeline) {
+      return;
+    }
+    const root = timeline.shadowRoot;
+    const chartBase = root?.querySelector("ha-chart-base");
+    const container = chartBase?.shadowRoot?.querySelector(
+      ".chart-container"
+    );
+
+    if (!container) {
+      return;
+    }
+
+    if (!container.style.position) {
+      container.style.position = "relative";
+    }
+
+    if (!showNames) {
+      if (timeline[TIMELINE_LABEL_SIGNATURE_KEY]) {
+        const overlay = container.querySelector(
+          `.${TIMELINE_LABEL_OVERLAY_CLASS}`
+        );
+        if (overlay) {
+          overlay.remove();
+          changed = true;
+        }
+        delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
+      }
+      return;
+    }
+
+    const data = Array.isArray(timeline.data) ? timeline.data : [];
+    if (!data.length) {
+      return;
+    }
+
+    const totalHeight = container.clientHeight || chartBase.clientHeight;
+    const gridTop = 10;
+    const gridBottom = 30;
+    const availableHeight = Math.max(0, totalHeight - gridTop - gridBottom);
+    const rowCount = data.length;
+    const rowSpan = rowCount ? availableHeight / rowCount : 0;
+    const barHeight = 20;
+    const labelGap = 6;
+
+    const labels = data
+      .map((item, index) => {
+        const entityId = item?.entity_id;
+        if (!entityId) {
+          return null;
+        }
+        const entityInfo = entityInfoMap.get(entityId);
+        const hassState = options?.hass?.states?.[entityId];
+        const name =
+          entityInfo?.name ||
+          item?.name ||
+          hassState?.attributes?.friendly_name ||
+          prettifyEntityId(entityId);
+        const icon =
+          entityInfo?.icon || hassState?.attributes?.icon || "mdi:server";
+        const centerY = gridTop + rowSpan * index + rowSpan / 2;
+        const top = Math.max(0, centerY - barHeight / 2 - labelGap);
+        return { entityId, name, icon, top };
+      })
+      .filter(Boolean);
+
+    if (!labels.length) {
+      return;
+    }
+
+    const signature = JSON.stringify(
+      labels.map((label) => ({
+        entity: label.entityId,
+        name: label.name,
+        icon: label.icon,
+        top: Math.round(label.top),
+      }))
+    );
+
+    if (timeline[TIMELINE_LABEL_SIGNATURE_KEY] === signature) {
+      return;
+    }
+
+    let overlay = container.querySelector(`.${TIMELINE_LABEL_OVERLAY_CLASS}`);
+    if (!overlay) {
+      overlay = createTimelineLabelOverlay(container);
+      changed = true;
+    }
+
+    overlay.innerHTML = "";
+    overlay.style.pointerEvents = "none";
+
+    labels.forEach((label) => {
+      const labelElement = document.createElement("div");
+      labelElement.className = "proxmox-timeline-label-item";
+      labelElement.style.position = "absolute";
+      labelElement.style.left = "8px";
+      labelElement.style.right = "8px";
+      labelElement.style.top = `${label.top}px`;
+      labelElement.style.display = "flex";
+      labelElement.style.alignItems = "center";
+      labelElement.style.gap = "8px";
+      labelElement.style.fontWeight = "600";
+      labelElement.style.color = "var(--primary-text-color)";
+      labelElement.style.pointerEvents = "auto";
+      labelElement.style.cursor = "pointer";
+      labelElement.style.lineHeight = "1.4";
+
+      const iconEl = document.createElement("ha-icon");
+      iconEl.setAttribute("icon", label.icon);
+      iconEl.style.setProperty("--mdc-icon-size", "20px");
+      iconEl.style.pointerEvents = "none";
+
+      const textEl = document.createElement("span");
+      textEl.textContent = label.name;
+      textEl.style.pointerEvents = "none";
+
+      labelElement.append(iconEl, textEl);
+
+      labelElement.addEventListener("click", () => {
+        timeline.dispatchEvent(
+          new CustomEvent("hass-more-info", {
+            detail: { entityId: label.entityId },
+            bubbles: true,
+            composed: true,
+          })
+        );
+      });
+
+      overlay.append(labelElement);
+    });
+
+    timeline[TIMELINE_LABEL_SIGNATURE_KEY] = signature;
+    changed = true;
+  });
+
+  return changed;
+};
+
+const removeTimelineLabelOverlays = (timelines) => {
+  if (!timelines?.length) {
+    return false;
+  }
+  let removed = false;
+  timelines.forEach((timeline) => {
+    if (!timeline) {
+      return;
+    }
+    const root = timeline.shadowRoot;
+    const chartBase = root?.querySelector("ha-chart-base");
+    const container = chartBase?.shadowRoot?.querySelector(
+      ".chart-container"
+    );
+    const overlay = container?.querySelector(
+      `.${TIMELINE_LABEL_OVERLAY_CLASS}`
+    );
+    if (overlay) {
+      overlay.remove();
+      removed = true;
+    }
+    if (timeline[TIMELINE_LABEL_SIGNATURE_KEY]) {
+      delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
+      removed = true;
+    }
+  });
+  return removed;
+};
+
 const forwardHistoryConfig = (config, entities) => {
   const historyConfig = { type: "history-graph", entities };
-  const passthroughKeys = [
-    "title",
-    "hours_to_show",
-    "show_names",
-  ];
+  const passthroughKeys = ["title", "hours_to_show"];
 
   passthroughKeys.forEach((key) => {
     if (config[key] !== undefined) {
       historyConfig[key] = config[key];
     }
   });
+
+  historyConfig.show_names = false;
 
   return historyConfig;
 };
@@ -2032,6 +2340,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._lastEntitiesKey = "";
       this._timelineColorTimeout = undefined;
       this._lastTimelineSignature = "";
+      this._resolvedEntities = [];
     }
 
     static getStubConfig() {
@@ -2055,6 +2364,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       }
       this._config = { ...config };
       this._lastEntitiesKey = "";
+      this._resolvedEntities = [];
       this._teardownCard();
       if (this._hass) {
         this._createCard();
@@ -2213,12 +2523,20 @@ if (!customElements.get("proxmox-uptime-card")) {
       if (resetTimelineElementStyles(timelineElements)) {
         changed = true;
       }
+      if (removeTimelineLabelOverlays(timelineElements)) {
+        changed = true;
+      }
       return changed;
     }
 
     _scheduleTimelineColorUpdate() {
       const colorConfig = this._getTimelineColorConfig();
-      if (!colorConfig) {
+      const showNames = this._config?.show_names !== false;
+      const hasLabels =
+        showNames &&
+        Array.isArray(this._resolvedEntities) &&
+        this._resolvedEntities.length > 0;
+      if (!colorConfig && !hasLabels) {
         this._lastTimelineSignature = "";
         this._resetTimelineColors();
         this._clearTimelineColorTimeout();
@@ -2234,14 +2552,23 @@ if (!customElements.get("proxmox-uptime-card")) {
           this._timelineColorTimeout = undefined;
           return;
         }
-        const success = this._applyTimelineColorToCard(colorConfig);
+        const success = this._applyTimelineColorToCard(
+          colorConfig,
+          hasLabels
+            ? {
+                showNames,
+                entities: this._resolvedEntities,
+                hass: this._hass,
+              }
+            : null
+        );
         if (!success && attempts < attemptLimit) {
           attempts += 1;
           this._timelineColorTimeout = setTimeout(apply, 150);
         } else {
           this._timelineColorTimeout = undefined;
           if (success) {
-            this._lastTimelineSignature = colorConfig.signature;
+            this._lastTimelineSignature = colorConfig?.signature || "";
           }
         }
       };
@@ -2249,8 +2576,8 @@ if (!customElements.get("proxmox-uptime-card")) {
       apply();
     }
 
-    _applyTimelineColorToCard(colorConfig) {
-      if (!colorConfig || !this._card) {
+    _applyTimelineColorToCard(colorConfig, labelOptions) {
+      if (!this._card) {
         return false;
       }
       const chartElements = collectChartBaseElements(this._card);
@@ -2260,28 +2587,38 @@ if (!customElements.get("proxmox-uptime-card")) {
       }
 
       let applied = false;
-      chartElements.forEach((chartElement) => {
-        const chart = chartElement?.chart || chartElement?._chart;
-        if (!chart?.data?.datasets?.length) {
-          return;
-        }
-        let chartApplied = false;
-        chart.data.datasets.forEach((dataset) => {
-          if (!dataset) {
+      if (colorConfig) {
+        chartElements.forEach((chartElement) => {
+          const chart = chartElement?.chart || chartElement?._chart;
+          if (!chart?.data?.datasets?.length) {
             return;
           }
-          if (applyTimelineColorsToDataset(dataset, colorConfig)) {
-            chartApplied = true;
-            applied = true;
+          let chartApplied = false;
+          chart.data.datasets.forEach((dataset) => {
+            if (!dataset) {
+              return;
+            }
+            if (applyTimelineColorsToDataset(dataset, colorConfig)) {
+              chartApplied = true;
+              applied = true;
+            }
+          });
+          if (chartApplied && typeof chart.update === "function") {
+            chart.update("none");
           }
         });
-        if (chartApplied && typeof chart.update === "function") {
-          chart.update("none");
-        }
-      });
 
-      if (applyTimelineColorsToTimelines(timelineElements, colorConfig)) {
+        if (applyTimelineColorsToTimelines(timelineElements, colorConfig)) {
+          applied = true;
+        }
+      }
+
+      if (labelOptions && applyTimelineLabelsToTimelines(timelineElements, labelOptions)) {
         applied = true;
+      } else if (!labelOptions) {
+        if (removeTimelineLabelOverlays(timelineElements)) {
+          applied = true;
+        }
       }
 
       return applied;
@@ -2331,6 +2668,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._teardownCard();
 
       const entities = computeEntities(this._hass, this._config);
+      this._resolvedEntities = entities;
       const historyConfig = forwardHistoryConfig(this._config, entities);
 
       if (!historyConfig.entities?.length) {

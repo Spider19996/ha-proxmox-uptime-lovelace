@@ -25,6 +25,20 @@ entities:
   - sensor.proxmox_host_uptime
 ```
 
+### Anzeigenamen und Icons
+
+Passe die Beschriftung und das Icon pro Sensor im visuellen Editor oder per YAML an:
+
+```yaml
+type: custom:proxmox-uptime-card
+names:
+  binary_sensor.node_alpha_status: Proxmox Node Alpha
+icons:
+  binary_sensor.node_alpha_status: mdi:server
+```
+
+Die Sensorbezeichnung erscheint oberhalb des Zeitstrahls, links daneben steht das gewählte Icon.
+
 ## Entwicklung
 
 Die Card kapselt die bestehende History-Graph-Implementierung aus Home Assistant und reicht die relevanten Optionen automatisiert weiter.
