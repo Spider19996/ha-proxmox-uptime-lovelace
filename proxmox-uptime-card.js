@@ -2292,12 +2292,11 @@ if (!customElements.get("proxmox-uptime-card")) {
 
         const container = timeline.parentElement;
         if (container) {
-          Array.from(container.children).forEach((child) => {
-            if (child?.classList?.contains("proxmox-timeline-label-overlay")) {
-              container.classList.remove("proxmox-timeline-container");
-              child.remove();
-              removed = true;
-            }
+          Array.from(
+            container.querySelectorAll(":scope > .proxmox-timeline-label-overlay")
+          ).forEach((overlay) => {
+            overlay.remove();
+            removed = true;
           });
           removeLayoutStyle(container.getRootNode?.() || container);
         }
@@ -2311,28 +2310,6 @@ if (!customElements.get("proxmox-uptime-card")) {
             labels.forEach((label) => label.remove());
             removed = true;
           }
-          const rowContainers = timelineRoot.querySelectorAll(
-            ".proxmox-timeline-row"
-          );
-          rowContainers.forEach((rowContainer) => {
-            const host = rowContainer.parentElement;
-            if (!host) {
-              return;
-            }
-            Array.from(rowContainer.childNodes).forEach((child) => {
-              if (
-                child.nodeType === Node.ELEMENT_NODE &&
-                child.classList?.contains("proxmox-timeline-inline-label")
-              ) {
-                child.remove();
-                removed = true;
-              } else {
-                host.insertBefore(child, rowContainer);
-                removed = true;
-              }
-            });
-            rowContainer.remove();
-          });
           removeLayoutStyle(timelineRoot);
         }
 
@@ -2359,34 +2336,35 @@ if (!customElements.get("proxmox-uptime-card")) {
       const style = document.createElement("style");
       style.setAttribute("data-proxmox-timeline-layout", "true");
       style.textContent = `
-        .proxmox-timeline-container {
-          display: flex;
-          flex-direction: column;
-          align-items: stretch;
-          gap: 6px;
-        }
-
-        .proxmox-timeline-row {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          width: 100%;
-        }
-
         .proxmox-timeline-inline-label {
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          color: var(--primary-text-color, inherit);
+          color: var(
+            --proxmox-label-accent,
+            var(--primary-text-color, var(--secondary-text-color, currentColor))
+          );
           font-weight: 500;
           font-size: 0.95rem;
           line-height: 1.2;
           padding-inline: 2px;
+          margin-block: 10px 4px;
+        }
+
+        .proxmox-timeline-inline-label:first-child {
+          margin-block-start: 0;
+        }
+
+        ha-timeline + .proxmox-timeline-inline-label {
+          margin-block-start: 14px;
         }
 
         .proxmox-timeline-inline-label ha-icon {
           --mdc-icon-size: 20px;
-          color: var(--primary-text-color, inherit);
+          color: var(
+            --proxmox-label-accent,
+            var(--primary-text-color, var(--secondary-text-color, currentColor))
+          );
         }
       `;
       styleRoot.append(style);
@@ -2428,11 +2406,10 @@ if (!customElements.get("proxmox-uptime-card")) {
 
         const container = timelineEl.parentElement;
         if (container) {
-          container.classList.add("proxmox-timeline-container");
-          this._ensureTimelineLayoutStyles(container.getRootNode?.() || container);
           Array.from(
             container.querySelectorAll(":scope > .proxmox-timeline-label-overlay")
           ).forEach((overlay) => overlay.remove());
+          this._ensureTimelineLayoutStyles(container.getRootNode?.() || container);
         }
 
         const timelineRoot = timelineEl.shadowRoot || timelineEl;
@@ -2453,6 +2430,21 @@ if (!customElements.get("proxmox-uptime-card")) {
           const entry = data[index] || data[data.length - 1] || {};
           const entityId = entry?.entity_id || entry?.id || "";
           const info = (entityId && this._entityDisplayInfo?.[entityId]) || {};
+          const accentSources = [
+            "--timeline-color-on",
+            "--timeline-state-on-color",
+            "--state-on-color",
+            "--state-active-color",
+            "--state-binary_sensor-on-color",
+            "--state-binary_sensor-active-color",
+          ];
+          const accentColor =
+            accentSources
+              .map((prop) => rowEl?.style?.getPropertyValue(prop)?.trim())
+              .find((value) => value) ||
+            (typeof entry?.timelineColor === "string"
+              ? entry.timelineColor.trim()
+              : "");
           return {
             id: entityId,
             name:
@@ -2463,6 +2455,7 @@ if (!customElements.get("proxmox-uptime-card")) {
               typeof info.icon === "string" && info.icon
                 ? info.icon
                 : entry?.icon || "mdi:server-network",
+            accent: accentColor || "",
           };
         });
 
@@ -2483,29 +2476,27 @@ if (!customElements.get("proxmox-uptime-card")) {
         existingLabels.forEach((label) => label.remove());
 
         timelineRows.forEach((rowEl, index) => {
-          const parent = rowEl?.parentElement;
-          if (!parent) {
+          const parentNode = rowEl?.parentNode;
+          if (!parentNode || typeof parentNode.insertBefore !== "function") {
             return;
           }
-          let rowContainer;
-          if (parent.classList?.contains("proxmox-timeline-row")) {
-            rowContainer = parent;
-          } else {
-            rowContainer = document.createElement("div");
-            rowContainer.className = "proxmox-timeline-row";
-            parent.insertBefore(rowContainer, rowEl);
-            rowContainer.append(rowEl);
+          let previous = rowEl.previousSibling;
+          while (previous && previous.nodeType !== Node.ELEMENT_NODE) {
+            previous = previous.previousSibling;
           }
-
-          Array.from(
-            rowContainer.querySelectorAll(
-              ":scope > .proxmox-timeline-inline-label"
-            )
-          ).forEach((label) => label.remove());
+          if (previous?.classList?.contains("proxmox-timeline-inline-label")) {
+            previous.remove();
+          }
 
           const entryInfo = signaturePayload[index] || {};
           const labelRow = document.createElement("div");
           labelRow.className = "proxmox-timeline-inline-label";
+          if (entryInfo.accent) {
+            labelRow.style.setProperty(
+              "--proxmox-label-accent",
+              entryInfo.accent
+            );
+          }
 
           const iconEl = document.createElement("ha-icon");
           iconEl.setAttribute("icon", entryInfo.icon || "mdi:server-network");
@@ -2515,7 +2506,7 @@ if (!customElements.get("proxmox-uptime-card")) {
           textEl.textContent = entryInfo.name || entryInfo.id || "";
           labelRow.append(textEl);
 
-          rowContainer.insertBefore(labelRow, rowEl);
+          parentNode.insertBefore(labelRow, rowEl);
         });
 
         applied = true;
