@@ -2320,30 +2320,35 @@ if (!customElements.get("proxmox-uptime-card")) {
       const style = document.createElement("style");
       style.setAttribute("data-proxmox-timeline-layout", "true");
       style.textContent = `
-        .proxmox-timeline-container {
-          position: relative;
-        }
-
         .proxmox-timeline-label-overlay {
-          position: absolute;
-          inset: 0;
           display: flex;
           flex-direction: column;
-          justify-content: flex-start;
+          align-items: flex-start;
+          gap: 6px;
+          margin-bottom: 8px;
           pointer-events: none;
-          z-index: 2;
+          width: 100%;
+        }
+
+        .proxmox-timeline-container {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .proxmox-timeline-container > state-history-chart-timeline {
+          display: flex;
+          flex-direction: column;
         }
 
         .proxmox-timeline-label-row {
           display: flex;
-          align-items: flex-start;
-          gap: 8px;
+          align-items: center;
+          gap: 10px;
           color: var(--primary-text-color);
           font-weight: 500;
           font-size: 0.95rem;
           line-height: 1.2;
-          padding-bottom: 12px;
-          box-sizing: border-box;
         }
 
         .proxmox-timeline-label-row:last-child {
@@ -2406,14 +2411,15 @@ if (!customElements.get("proxmox-uptime-card")) {
         if (!overlay) {
           overlay = document.createElement("div");
           overlay.className = "proxmox-timeline-label-overlay";
-          container.appendChild(overlay);
+          container.insertBefore(overlay, timelineEl);
+        } else if (overlay.nextSibling !== timelineEl) {
+          container.insertBefore(overlay, timelineEl);
         }
 
         const chartBase =
           timelineEl.shadowRoot?.querySelector("ha-chart-base") ||
           timelineEl.querySelector?.("ha-chart-base");
         const timelineHeight = chartBase?.offsetHeight || timelineEl.offsetHeight || 0;
-        const rowHeight = timelineHeight && data.length ? timelineHeight / data.length : 0;
 
         const signaturePayload = data.map((entry) => {
           const entityId = entry?.entity_id || entry?.id || "";
@@ -2443,12 +2449,6 @@ if (!customElements.get("proxmox-uptime-card")) {
         signaturePayload.forEach((entryInfo) => {
           const row = document.createElement("div");
           row.className = "proxmox-timeline-label-row";
-          if (rowHeight) {
-            const spacing = Math.max(12, Math.round(rowHeight * 0.35));
-            const usableHeight = Math.max(0, rowHeight - spacing);
-            row.style.height = `${usableHeight}px`;
-            row.style.paddingBottom = `${spacing}px`;
-          }
 
           const iconEl = document.createElement("ha-icon");
           iconEl.setAttribute("icon", entryInfo.icon || "mdi:server-network");
