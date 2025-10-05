@@ -2267,22 +2267,43 @@ if (!customElements.get("proxmox-uptime-card")) {
         return false;
       }
 
-      const overlays = root.querySelectorAll(".proxmox-timeline-label-overlay");
-      overlays.forEach((overlay) => {
-        if (overlay && overlay.parentElement) {
-          overlay.parentElement.classList.remove("proxmox-timeline-container");
-          overlay.remove();
+      let removed = false;
+      const processedStyleRoots = new Set();
+      const timelineElements = collectTimelineElements(root);
+      timelineElements.forEach((timeline) => {
+        if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+          return;
         }
-      });
 
-      const timelines = root.querySelectorAll("state-history-chart-timeline");
-      timelines.forEach((timeline) => {
-        if (timeline?.dataset) {
+        const container = timeline.parentElement;
+        if (container) {
+          Array.from(container.children).forEach((child) => {
+            if (child?.classList?.contains("proxmox-timeline-label-overlay")) {
+              container.classList.remove("proxmox-timeline-container");
+              child.remove();
+              removed = true;
+            }
+          });
+          const styleRoot = container.getRootNode?.() || container;
+          if (styleRoot && !processedStyleRoots.has(styleRoot)) {
+            processedStyleRoots.add(styleRoot);
+            const layoutStyle =
+              typeof styleRoot.querySelector === "function"
+                ? styleRoot.querySelector("style[data-proxmox-timeline-layout]")
+                : null;
+            if (layoutStyle) {
+              layoutStyle.remove();
+              removed = true;
+            }
+          }
+        }
+
+        if (timeline?.dataset?.proxmoxLayoutSignature) {
           delete timeline.dataset.proxmoxLayoutSignature;
         }
       });
 
-      return overlays.length > 0;
+      return removed;
     }
 
     _ensureTimelineLayoutStyles(root) {
@@ -2352,8 +2373,8 @@ if (!customElements.get("proxmox-uptime-card")) {
         return false;
       }
 
-      const timelineElements = Array.from(
-        root.querySelectorAll("state-history-chart-timeline")
+      const timelineElements = collectTimelineElements(root).filter(
+        (el) => el?.tagName === "STATE-HISTORY-CHART-TIMELINE"
       );
 
       if (!timelineElements.length) {
