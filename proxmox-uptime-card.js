@@ -1,4 +1,4 @@
-const CARD_VERSION = "2.2.0";
+const CARD_VERSION = "2.3.0";
 const DEFAULT_FILTER = [
   "binary_sensor.node_.*_status",
   "binary_sensor.vm_.*_status",
@@ -60,6 +60,7 @@ const ensureEditorElementRegistered = () => {
       fields: [
         "hours_to_show",
         "show_names",
+        "show_timeline",
         "name_filters",
         "timeline_color_on",
         "timeline_color_off",
@@ -84,6 +85,7 @@ const ensureEditorElementRegistered = () => {
         show_all: "Show all entities",
         hours_to_show: "Hours to show",
         show_names: "Show legend names",
+        show_timeline: "Show timeline",
         name_filters: "Name filters",
         timeline_color_on: "Timeline color (on)",
         timeline_color_off: "Timeline color (off)",
@@ -99,6 +101,7 @@ const ensureEditorElementRegistered = () => {
         show_all: "Alle Entitäten anzeigen",
         hours_to_show: "Anzuzeigende Stunden",
         show_names: "Legendenamen anzeigen",
+        show_timeline: "Zeitstrahl anzeigen",
         name_filters: "Namensfilter",
         timeline_color_on: "Zeitstrahlfarbe (an)",
         timeline_color_off: "Zeitstrahlfarbe (aus)",
@@ -136,6 +139,8 @@ const ensureEditorElementRegistered = () => {
         names_raw: "Use 'entity_id = Friendly Name' per line to override names.",
         show_all:
           "Remove the Proxmox integration filter when picking binary sensors.",
+        show_timeline:
+          "Toggle visibility of the timeline displayed at the bottom of the card.",
         name_filters:
           "Provide words or phrases (one per line) to strip from entity names.",
         timeline_color_on: "Color applied when a sensor reports ON (uptime).",
@@ -153,6 +158,8 @@ const ensureEditorElementRegistered = () => {
           "'entity_id = Anzeigename' pro Zeile für Namensüberschreibungen.",
         show_all:
           "Entfernt den Proxmox-Filter bei der Auswahl von Binary-Sensoren.",
+        show_timeline:
+          "Steuert die Sichtbarkeit des unten angezeigten Zeitstrahls.",
         name_filters:
           "Wörter oder Phrasen (eine pro Zeile), die aus den Namen entfernt werden sollen.",
         timeline_color_on: "Farbe, wenn der Sensor AN meldet (Uptime).",
@@ -247,6 +254,7 @@ const ensureEditorElementRegistered = () => {
     names_raw: () => ({ name: "names_raw", selector: { text: { multiline: true } } }),
     hours_to_show: () => ({ name: "hours_to_show", selector: { number: { min: 1 } } }),
     show_names: () => ({ name: "show_names", selector: { boolean: {} } }),
+    show_timeline: () => ({ name: "show_timeline", selector: { boolean: {} } }),
     name_filters: () => ({ name: "name_filters", selector: { text: { multiline: true } } }),
     show_all: () => ({ name: "show_all", selector: { boolean: {} } }),
     timeline_color_on: () => null,
@@ -368,6 +376,7 @@ const ensureEditorElementRegistered = () => {
     "name_filters",
     "hours_to_show",
     "show_names",
+    "show_timeline",
     "language",
     "timeline_color_on",
     "timeline_color_off",
@@ -458,6 +467,7 @@ const ensureEditorElementRegistered = () => {
         show_all: config.show_all || false,
         hours_to_show: config.hours_to_show,
         show_names: config.show_names ?? true,
+        show_timeline: config.show_timeline !== false,
         name_filters: serializePatternList(config.name_filters),
         timeline_color_on: config.timeline_color_on || "",
         timeline_color_off: config.timeline_color_off || "",
@@ -908,6 +918,10 @@ const ensureEditorElementRegistered = () => {
         config.show_names = form.show_names;
       }
 
+      if (form.show_timeline !== undefined) {
+        config.show_timeline = form.show_timeline;
+      }
+
       const nameFilters = parseNameFilters(form.name_filters);
       if (nameFilters) {
         config.name_filters = nameFilters;
@@ -1253,6 +1267,9 @@ const TIMELINE_ORIGINAL_COLORS_KEY = "__proxmoxTimelineOriginalColors";
 const TIMELINE_SIGNATURE_KEY = "__proxmoxTimelineSignature";
 const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
 const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
+const TIMELINE_VISIBILITY_KEY = "__proxmoxTimelineVisibility";
+const TIMELINE_VISIBILITY_MODE_AXIS = "axis";
+const TIMELINE_VISIBILITY_MODE_STYLE = "style";
 
 const COLOR_FIELDS = [
   { name: "timeline_color_on" },
@@ -1885,6 +1902,198 @@ const buildTimelineDynamicStyleTargets = (timeline) => {
   };
 };
 
+const resolveTimelineChartBase = (timeline) => {
+  if (!timeline) {
+    return undefined;
+  }
+
+  const searchRoots = [];
+  if (timeline.shadowRoot) {
+    searchRoots.push(timeline.shadowRoot);
+  }
+  if (typeof timeline.querySelector === "function") {
+    searchRoots.push(timeline);
+  }
+
+  for (const root of searchRoots) {
+    const chartBase = root.querySelector
+      ? root.querySelector("ha-chart-base")
+      : undefined;
+    if (chartBase) {
+      return chartBase;
+    }
+  }
+  return undefined;
+};
+
+const resolveTimelineChartInstance = (timeline) => {
+  const chartBase = resolveTimelineChartBase(timeline);
+  if (!chartBase) {
+    return undefined;
+  }
+  return (
+    chartBase.chart ||
+    chartBase._chart ||
+    (typeof chartBase.getChart === "function" ? chartBase.getChart() : undefined)
+  );
+};
+
+const ensureTimelineVisibilityStore = (timeline) => {
+  if (!timeline[TIMELINE_VISIBILITY_KEY]) {
+    timeline[TIMELINE_VISIBILITY_KEY] = {};
+  }
+  return timeline[TIMELINE_VISIBILITY_KEY];
+};
+
+const hideTimelineUsingAxis = (timeline) => {
+  const chart = resolveTimelineChartInstance(timeline);
+  if (!chart || typeof chart.setOption !== "function") {
+    return false;
+  }
+
+  const store = ensureTimelineVisibilityStore(timeline);
+  if (!store.axis || store.mode !== TIMELINE_VISIBILITY_MODE_AXIS) {
+    const options =
+      typeof chart.getOption === "function" ? chart.getOption() : undefined;
+    const xAxisOptions = Array.isArray(options?.xAxis)
+      ? options.xAxis[0]
+      : options?.xAxis;
+    const gridOptions = Array.isArray(options?.grid)
+      ? options.grid[0]
+      : options?.grid;
+
+    store.axis = {
+      axisLabelShow:
+        typeof xAxisOptions?.axisLabel?.show === "boolean"
+          ? xAxisOptions.axisLabel.show
+          : undefined,
+      axisTickShow:
+        typeof xAxisOptions?.axisTick?.show === "boolean"
+          ? xAxisOptions.axisTick.show
+          : undefined,
+      gridBottom:
+        gridOptions && gridOptions.bottom !== undefined
+          ? gridOptions.bottom
+          : undefined,
+    };
+  }
+
+  store.mode = TIMELINE_VISIBILITY_MODE_AXIS;
+
+  if (store.style && timeline.style.getPropertyValue("display") === "none") {
+    const originalDisplay = store.style.display;
+    if (originalDisplay) {
+      timeline.style.setProperty("display", originalDisplay);
+    } else {
+      timeline.style.removeProperty("display");
+    }
+  }
+
+  chart.setOption({
+    xAxis: [
+      {
+        axisLabel: { show: false },
+        axisTick: { show: false },
+      },
+    ],
+    grid: [
+      {
+        bottom: 4,
+      },
+    ],
+  });
+
+  return true;
+};
+
+const showTimelineUsingAxis = (timeline) => {
+  const store = timeline[TIMELINE_VISIBILITY_KEY];
+  if (!store?.axis) {
+    return false;
+  }
+  const chart = resolveTimelineChartInstance(timeline);
+  if (!chart || typeof chart.setOption !== "function") {
+    return false;
+  }
+
+  const axisLabelShow =
+    store.axis.axisLabelShow !== undefined ? store.axis.axisLabelShow : true;
+  const axisTickShow =
+    store.axis.axisTickShow !== undefined ? store.axis.axisTickShow : true;
+  const gridBottom =
+    store.axis.gridBottom !== undefined ? store.axis.gridBottom : 30;
+
+  chart.setOption({
+    xAxis: [
+      {
+        axisLabel: { show: axisLabelShow },
+        axisTick: { show: axisTickShow },
+      },
+    ],
+    grid: [
+      {
+        bottom: gridBottom,
+      },
+    ],
+  });
+
+  delete timeline[TIMELINE_VISIBILITY_KEY];
+  return true;
+};
+
+const hideTimelineUsingStyle = (timeline) => {
+  const store = ensureTimelineVisibilityStore(timeline);
+  if (!store.style) {
+    store.style = {
+      display: timeline.style.getPropertyValue("display"),
+    };
+  }
+  store.mode = TIMELINE_VISIBILITY_MODE_STYLE;
+  if (timeline.style.getPropertyValue("display") !== "none") {
+    timeline.style.setProperty("display", "none");
+  }
+  return true;
+};
+
+const showTimelineUsingStyle = (timeline) => {
+  const store = timeline[TIMELINE_VISIBILITY_KEY];
+  if (!store?.style) {
+    return false;
+  }
+  const originalDisplay = store.style.display;
+  if (originalDisplay) {
+    timeline.style.setProperty("display", originalDisplay);
+  } else {
+    timeline.style.removeProperty("display");
+  }
+
+  delete timeline[TIMELINE_VISIBILITY_KEY];
+  return true;
+};
+
+const applyTimelineVisibility = (elements, showTimeline) => {
+  if (!elements?.length) {
+    return false;
+  }
+
+  let found = false;
+  elements.forEach((timeline) => {
+    if (!timeline) {
+      return;
+    }
+    found = true;
+    if (showTimeline) {
+      if (!showTimelineUsingAxis(timeline)) {
+        showTimelineUsingStyle(timeline);
+      }
+    } else if (!hideTimelineUsingAxis(timeline)) {
+      hideTimelineUsingStyle(timeline);
+    }
+  });
+
+  return found;
+};
+
 const applyTimelineColorsToTimelines = (elements, config) => {
   if (!elements?.length || !config) {
     return false;
@@ -2244,6 +2453,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._lastEntitiesKey = "";
       this._timelineColorTimeout = undefined;
       this._lastTimelineSignature = "";
+      this._timelineVisibilityTimeout = undefined;
     }
 
     static getStubConfig() {
@@ -2297,12 +2507,14 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       if (this._card) {
         this._card.hass = hass;
+        this._scheduleTimelineVisibilityUpdate();
         this._scheduleTimelineColorUpdate();
       }
     }
 
     disconnectedCallback() {
       this._clearTimelineColorTimeout();
+      this._clearTimelineVisibilityTimeout();
     }
 
     getCardSize() {
@@ -2317,6 +2529,13 @@ if (!customElements.get("proxmox-uptime-card")) {
       if (this._timelineColorTimeout) {
         clearTimeout(this._timelineColorTimeout);
         this._timelineColorTimeout = undefined;
+      }
+    }
+
+    _clearTimelineVisibilityTimeout() {
+      if (this._timelineVisibilityTimeout) {
+        clearTimeout(this._timelineVisibilityTimeout);
+        this._timelineVisibilityTimeout = undefined;
       }
     }
 
@@ -2426,6 +2645,41 @@ if (!customElements.get("proxmox-uptime-card")) {
         changed = true;
       }
       return changed;
+    }
+
+    _scheduleTimelineVisibilityUpdate() {
+      const showTimeline = this._config?.show_timeline !== false;
+      this._clearTimelineVisibilityTimeout();
+      let attempts = 0;
+      const attemptLimit = 20;
+
+      const apply = () => {
+        if (!this.isConnected || !this._card) {
+          this._timelineVisibilityTimeout = undefined;
+          return;
+        }
+        const applied = this._applyTimelineVisibilityToCard(showTimeline);
+        if (!applied && attempts < attemptLimit) {
+          attempts += 1;
+          this._timelineVisibilityTimeout = setTimeout(apply, 150);
+        } else {
+          this._timelineVisibilityTimeout = undefined;
+        }
+      };
+
+      apply();
+    }
+
+    _applyTimelineVisibilityToCard(showTimeline) {
+      if (!this._card) {
+        return false;
+      }
+      const timelineElements = collectTimelineElements(this._card);
+      if (!timelineElements.length) {
+        return false;
+      }
+      applyTimelineVisibility(timelineElements, showTimeline);
+      return true;
     }
 
     _scheduleTimelineColorUpdate() {
@@ -2584,6 +2838,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       cardElement.hass = this._hass;
       this._card = cardElement;
       this.append(cardElement);
+      this._scheduleTimelineVisibilityUpdate();
       this._scheduleTimelineColorUpdate();
     }
 
@@ -2607,6 +2862,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       }
       this._card = undefined;
       this._clearTimelineColorTimeout();
+      this._clearTimelineVisibilityTimeout();
       this._lastTimelineSignature = "";
     }
   }
