@@ -72,77 +72,93 @@ const ensureEditorElementRegistered = () => {
     },
   ];
 
-  const EDITOR_LABELS_EN = {
-    title: "Title",
-    entities: "Entities",
-    match: "Include pattern",
-    exclude: "Exclude pattern",
-    language_mode: "Language",
-    names_raw: "Friendly names",
-    show_all: "Show all entities",
-    hours_to_show: "Hours to show",
-    show_names: "Show legend names",
-    name_filters: "Name filters",
-    timeline_color_on: "Timeline color (on)",
-    timeline_color_off: "Timeline color (off)",
-    timeline_color_unknown: "Timeline color (unknown)",
+  const EDITOR_TEXTS = {
+    labels: {
+      [LANGUAGE_EN]: {
+        title: "Title",
+        entities: "Entities",
+        match: "Include pattern",
+        exclude: "Exclude pattern",
+        language_mode: "Language",
+        names_raw: "Friendly names",
+        show_all: "Show all entities",
+        hours_to_show: "Hours to show",
+        show_names: "Show legend names",
+        name_filters: "Name filters",
+        timeline_color_on: "Timeline color (on)",
+        timeline_color_off: "Timeline color (off)",
+        timeline_color_unknown: "Timeline color (unknown)",
+      },
+      [LANGUAGE_DE]: {
+        title: "Titel",
+        entities: "Entitäten",
+        match: "Einschlussmuster",
+        exclude: "Ausschlussmuster",
+        language_mode: "Sprache",
+        names_raw: "Freundliche Namen",
+        show_all: "Alle Entitäten anzeigen",
+        hours_to_show: "Anzuzeigende Stunden",
+        show_names: "Legendenamen anzeigen",
+        name_filters: "Namensfilter",
+        timeline_color_on: "Zeitstrahlfarbe (an)",
+        timeline_color_off: "Zeitstrahlfarbe (aus)",
+        timeline_color_unknown: "Zeitstrahlfarbe (unbekannt)",
+      },
+    },
+    helpers: {
+      [LANGUAGE_EN]: {
+        entities: "Leave empty to auto-detect Proxmox uptime sensors.",
+        match: "Regular expressions matched against entity IDs (one per line).",
+        exclude: "Patterns to exclude (one per line).",
+        language_mode: "Select a fixed editor language or follow Home Assistant.",
+        names_raw: "Use 'entity_id = Friendly Name' per line to override names.",
+        show_all:
+          "Remove the Proxmox integration filter when picking binary sensors.",
+        name_filters:
+          "Provide words or phrases (one per line) to strip from entity names.",
+        timeline_color_on: "Color applied when a sensor reports ON (uptime).",
+        timeline_color_off: "Color applied when a sensor reports OFF (downtime).",
+        timeline_color_unknown:
+          "Color applied when the sensor state is unknown or unavailable.",
+      },
+      [LANGUAGE_DE]: {
+        entities:
+          "Leer lassen, um Proxmox-Uptime-Sensoren automatisch zu erkennen.",
+        match: "Reguläre Ausdrücke für Entity-IDs (eine pro Zeile).",
+        exclude: "Auszuschließende Muster (eine pro Zeile).",
+        language_mode: "Feste Editor-Sprache wählen oder Home Assistant folgen.",
+        names_raw:
+          "'entity_id = Anzeigename' pro Zeile für Namensüberschreibungen.",
+        show_all:
+          "Entfernt den Proxmox-Filter bei der Auswahl von Binary-Sensoren.",
+        name_filters:
+          "Wörter oder Phrasen (eine pro Zeile), die aus den Namen entfernt werden sollen.",
+        timeline_color_on: "Farbe, wenn der Sensor AN meldet (Uptime).",
+        timeline_color_off: "Farbe, wenn der Sensor AUS meldet (Downtime).",
+        timeline_color_unknown:
+          "Farbe, wenn der Sensorzustand unbekannt oder nicht verfügbar ist.",
+      },
+    },
+    intro: {
+      [LANGUAGE_DE]:
+        "Optional Filter konfigurieren oder erkannte Sensoren überschreiben. Lasse Entitäten leer, um die Auto-Erkennung zu nutzen.",
+      [LANGUAGE_EN]:
+        "Configure optional filters or override detected sensors. Leave entities empty to use auto-discovery.",
+    },
+    tabs: {
+      general: { [LANGUAGE_DE]: "Allgemein", [LANGUAGE_EN]: "General" },
+      filters: { [LANGUAGE_DE]: "Filter", [LANGUAGE_EN]: "Filters" },
+      display: { [LANGUAGE_DE]: "Darstellung", [LANGUAGE_EN]: "Display" },
+      advanced: { [LANGUAGE_DE]: "Erweitert", [LANGUAGE_EN]: "Advanced" },
+    },
   };
 
-  const EDITOR_LABELS_DE = {
-    title: "Titel",
-    entities: "Entitäten",
-    match: "Einschlussmuster",
-    exclude: "Ausschlussmuster",
-    language_mode: "Sprache",
-    names_raw: "Freundliche Namen",
-    show_all: "Alle Entitäten anzeigen",
-    hours_to_show: "Anzuzeigende Stunden",
-    show_names: "Legendenamen anzeigen",
-    name_filters: "Namensfilter",
-    timeline_color_on: "Zeitstrahlfarbe (an)",
-    timeline_color_off: "Zeitstrahlfarbe (aus)",
-    timeline_color_unknown: "Zeitstrahlfarbe (unbekannt)",
-  };
+  const INTRO_TEXT = { ...EDITOR_TEXTS.intro };
 
-  const EDITOR_HELPERS_EN = {
-    entities: "Leave empty to auto-detect Proxmox uptime sensors.",
-    match: "Regular expressions matched against entity IDs (one per line).",
-    exclude: "Patterns to exclude (one per line).",
-    language_mode: "Select a fixed editor language or follow Home Assistant.",
-    names_raw: "Use 'entity_id = Friendly Name' per line to override names.",
-    show_all: "Remove the Proxmox integration filter when picking binary sensors.",
-    name_filters: "Provide words or phrases (one per line) to strip from entity names.",
-    timeline_color_on: "Color applied when a sensor reports ON (uptime).",
-    timeline_color_off: "Color applied when a sensor reports OFF (downtime).",
-    timeline_color_unknown: "Color applied when the sensor state is unknown or unavailable.",
-  };
-
-  const EDITOR_HELPERS_DE = {
-    entities: "Leer lassen, um Proxmox-Uptime-Sensoren automatisch zu erkennen.",
-    match: "Reguläre Ausdrücke für Entity-IDs (eine pro Zeile).",
-    exclude: "Auszuschließende Muster (eine pro Zeile).",
-    language_mode: "Feste Editor-Sprache wählen oder Home Assistant folgen.",
-    names_raw: "'entity_id = Anzeigename' pro Zeile für Namensüberschreibungen.",
-    show_all: "Entfernt den Proxmox-Filter bei der Auswahl von Binary-Sensoren.",
-    name_filters: "Wörter oder Phrasen (eine pro Zeile), die aus den Namen entfernt werden sollen.",
-    timeline_color_on: "Farbe, wenn der Sensor AN meldet (Uptime).",
-    timeline_color_off: "Farbe, wenn der Sensor AUS meldet (Downtime).",
-    timeline_color_unknown: "Farbe, wenn der Sensorzustand unbekannt oder nicht verfügbar ist.",
-  };
-
-  const INTRO_TEXT = {
-    [LANGUAGE_DE]:
-      "Optional Filter konfigurieren oder erkannte Sensoren überschreiben. Lasse Entitäten leer, um die Auto-Erkennung zu nutzen.",
-    [LANGUAGE_EN]:
-      "Configure optional filters or override detected sensors. Leave entities empty to use auto-discovery.",
-  };
-
-  const TAB_LABELS = {
-    general: { [LANGUAGE_DE]: "Allgemein", [LANGUAGE_EN]: "General" },
-    filters: { [LANGUAGE_DE]: "Filter", [LANGUAGE_EN]: "Filters" },
-    display: { [LANGUAGE_DE]: "Darstellung", [LANGUAGE_EN]: "Display" },
-    advanced: { [LANGUAGE_DE]: "Erweitert", [LANGUAGE_EN]: "Advanced" },
-  };
+  const TAB_LABELS = Object.keys(EDITOR_TEXTS.tabs).reduce((acc, key) => {
+    acc[key] = { ...EDITOR_TEXTS.tabs[key] };
+    return acc;
+  }, {});
 
   const resolveEditorLanguage = (formData, config, hass) => {
     const mode = formData?.language_mode || config?.language || LANGUAGE_AUTO;
@@ -232,15 +248,15 @@ const ensureEditorElementRegistered = () => {
   };
 
   const LABEL_MAP = {
-    [LANGUAGE_DE]: EDITOR_LABELS_DE,
-    [LANGUAGE_EN]: EDITOR_LABELS_EN,
-    default: EDITOR_LABELS_EN,
+    [LANGUAGE_DE]: EDITOR_TEXTS.labels[LANGUAGE_DE],
+    [LANGUAGE_EN]: EDITOR_TEXTS.labels[LANGUAGE_EN],
+    default: EDITOR_TEXTS.labels[LANGUAGE_EN],
   };
 
   const HELPER_MAP = {
-    [LANGUAGE_DE]: EDITOR_HELPERS_DE,
-    [LANGUAGE_EN]: EDITOR_HELPERS_EN,
-    default: EDITOR_HELPERS_EN,
+    [LANGUAGE_DE]: EDITOR_TEXTS.helpers[LANGUAGE_DE],
+    [LANGUAGE_EN]: EDITOR_TEXTS.helpers[LANGUAGE_EN],
+    default: EDITOR_TEXTS.helpers[LANGUAGE_EN],
   };
 
   const PATTERN_SEPARATOR = "\n";
