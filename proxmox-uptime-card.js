@@ -105,6 +105,28 @@ const ensureEditorElementRegistered = () => {
         timeline_color_unknown: "Zeitstrahlfarbe (unbekannt)",
       },
     },
+    filter_preview: {
+      summary: {
+        [LANGUAGE_EN]: "Included sensors",
+        [LANGUAGE_DE]: "Eingeschlossene Sensoren",
+      },
+      description: {
+        [LANGUAGE_EN]:
+          "The following binary sensors currently match the include pattern:",
+        [LANGUAGE_DE]:
+          "Die folgenden Binärsensoren passen derzeit auf das Einschlussmuster:",
+      },
+      empty: {
+        [LANGUAGE_EN]: "No binary sensors match the current include pattern.",
+        [LANGUAGE_DE]:
+          "Keine Binärsensoren passen auf das aktuelle Einschlussmuster.",
+      },
+      loading: {
+        [LANGUAGE_EN]: "Sensors will appear here once Home Assistant data is available.",
+        [LANGUAGE_DE]:
+          "Sensoren werden angezeigt, sobald Home-Assistant-Daten verfügbar sind.",
+      },
+    },
     helpers: {
       [LANGUAGE_EN]: {
         entities: "Leave empty to auto-detect Proxmox uptime sensors.",
@@ -363,6 +385,9 @@ const ensureEditorElementRegistered = () => {
       this._pendingConfigSignature = undefined;
       this._currentConfigSignature = undefined;
       this._formElement = undefined;
+      this._filterPreviewElement = undefined;
+      this._filterPreviewContent = undefined;
+      this._filterPreviewSummary = undefined;
       this._handleValueChanged = this._handleValueChanged.bind(this);
     }
 
@@ -405,7 +430,9 @@ const ensureEditorElementRegistered = () => {
       }
       if (previousLanguage !== nextLanguage) {
         this._render();
+        return;
       }
+      this._updateFilterPreview();
     }
 
     get hass() {
@@ -466,6 +493,10 @@ const ensureEditorElementRegistered = () => {
         );
         this._formElement = undefined;
       }
+
+      this._filterPreviewElement = undefined;
+      this._filterPreviewContent = undefined;
+      this._filterPreviewSummary = undefined;
 
       this.shadowRoot.innerHTML = "";
 
@@ -563,6 +594,38 @@ const ensureEditorElementRegistered = () => {
           color: var(--secondary-text-color);
           font-size: 0.85rem;
         }
+        .filter-preview {
+          margin-top: 16px;
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+          border-radius: 8px;
+          background: var(--card-background-color, #fff);
+          padding: 0 12px 12px;
+        }
+        .filter-preview summary {
+          font-weight: 600;
+          cursor: pointer;
+          padding: 12px 0;
+          list-style: none;
+        }
+        .filter-preview summary::-webkit-details-marker {
+          display: none;
+        }
+        .filter-preview-content {
+          color: var(--secondary-text-color);
+          font-size: 0.9rem;
+          padding-bottom: 4px;
+        }
+        .filter-preview-list {
+          margin: 8px 0 0;
+          padding-left: 20px;
+        }
+        .filter-preview-item {
+          margin: 4px 0;
+        }
+        .filter-preview-entity-id {
+          color: var(--primary-text-color);
+          font-family: var(--code-font-family, monospace);
+        }
         .version-info {
           margin-top: 12px;
           color: var(--secondary-text-color);
@@ -611,6 +674,10 @@ const ensureEditorElementRegistered = () => {
 
       this._formElement = form;
       this.shadowRoot.append(form);
+
+      if (this._activeTab === "filters") {
+        this._renderFilterPreview(lang);
+      }
 
       if (this._activeTab === "display") {
         this._renderColorEditors(lang);
@@ -767,7 +834,9 @@ const ensureEditorElementRegistered = () => {
       const nextShowAll = !!this._formData?.show_all;
       if (previousLanguage !== nextLanguage || previousShowAll !== nextShowAll) {
         this._render();
+        return;
       }
+      this._updateFilterPreview();
     }
 
     _handleColorFieldChange(fieldName, rawValue) {
@@ -860,6 +929,149 @@ const ensureEditorElementRegistered = () => {
       }
 
       return config;
+    }
+
+    _renderFilterPreview(lang) {
+      const details = document.createElement("details");
+      details.className = "filter-preview";
+      details.open = true;
+
+      const summary = document.createElement("summary");
+      this._filterPreviewSummary = summary;
+      details.append(summary);
+
+      const content = document.createElement("div");
+      content.className = "filter-preview-content";
+      this._filterPreviewContent = content;
+      details.append(content);
+
+      this._filterPreviewElement = details;
+      this.shadowRoot.append(details);
+      this._updateFilterPreview(lang);
+    }
+
+    _updateFilterPreview(forcedLang) {
+      if (!this._filterPreviewContent) {
+        return;
+      }
+
+      const lang = forcedLang || this._resolveLanguage();
+      const texts = EDITOR_TEXTS.filter_preview;
+
+      if (this._filterPreviewSummary) {
+        this._filterPreviewSummary.textContent =
+          texts.summary[lang] || texts.summary[LANGUAGE_EN];
+      }
+
+      const content = this._filterPreviewContent;
+      content.innerHTML = "";
+
+      if (!this.hass) {
+        const loading = document.createElement("p");
+        loading.textContent = texts.loading[lang] || texts.loading[LANGUAGE_EN];
+        content.append(loading);
+        return;
+      }
+
+      const rawPatterns = parsePatternList(this._formData?.match);
+      const includeList = rawPatterns
+        ? toArray(rawPatterns)
+        : toArray(DEFAULT_FILTER);
+
+      const includePatterns = includeList
+        .map((pattern) => {
+          try {
+            return toRegExp(pattern);
+          } catch (err) {
+            return undefined;
+          }
+        })
+        .filter(Boolean);
+
+      if (!includePatterns.length) {
+        const empty = document.createElement("p");
+        empty.textContent = texts.empty[lang] || texts.empty[LANGUAGE_EN];
+        content.append(empty);
+        return;
+      }
+
+      const states = Object.values(this.hass.states || {});
+      const matched = new Map();
+      states.forEach((state) => {
+        const entityId = state?.entity_id;
+        if (!entityId || matched.has(entityId)) {
+          return;
+        }
+        if (!isBinarySensorEntityId(entityId)) {
+          return;
+        }
+        const isIncluded = includePatterns.some((pattern) =>
+          pattern.test(entityId)
+        );
+        if (isIncluded) {
+          matched.set(entityId, state);
+        }
+      });
+
+      if (!matched.size) {
+        const empty = document.createElement("p");
+        empty.textContent = texts.empty[lang] || texts.empty[LANGUAGE_EN];
+        content.append(empty);
+        return;
+      }
+
+      if (this._filterPreviewSummary) {
+        const baseLabel = texts.summary[lang] || texts.summary[LANGUAGE_EN];
+        this._filterPreviewSummary.textContent = `${baseLabel} (${matched.size})`;
+      }
+
+      const description = document.createElement("p");
+      description.textContent =
+        texts.description[lang] || texts.description[LANGUAGE_EN];
+      content.append(description);
+
+      const list = document.createElement("ul");
+      list.className = "filter-preview-list";
+
+      const sortedStates = Array.from(matched.values()).sort((a, b) => {
+        const nameA = String(
+          a?.attributes?.friendly_name || a?.entity_id || ""
+        ).toLowerCase();
+        const nameB = String(
+          b?.attributes?.friendly_name || b?.entity_id || ""
+        ).toLowerCase();
+        if (nameA < nameB) {
+          return -1;
+        }
+        if (nameA > nameB) {
+          return 1;
+        }
+        return 0;
+      });
+
+      sortedStates.forEach((state) => {
+        const entityId = state?.entity_id;
+        const item = document.createElement("li");
+        item.className = "filter-preview-item";
+
+        const friendly = String(state?.attributes?.friendly_name || "").trim();
+        if (friendly) {
+          item.textContent = friendly;
+          const code = document.createElement("span");
+          code.className = "filter-preview-entity-id";
+          code.textContent = ` (${entityId})`;
+          item.append(code);
+        } else {
+          const code = document.createElement("span");
+          code.className = "filter-preview-entity-id";
+          code.textContent = entityId || "";
+          item.append(code);
+        }
+
+        list.append(item);
+      });
+
+      content.append(list);
     }
   }
 
