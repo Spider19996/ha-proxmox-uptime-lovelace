@@ -49,7 +49,7 @@ const ensureEditorElementRegistered = () => {
   const EDITOR_TABS = [
     {
       key: "general",
-      fields: ["title", "entities", "show_all", "names_raw"],
+      fields: ["title", "entities", "show_all", "names_raw", "icons_raw"],
     },
     {
       key: "filters",
@@ -88,6 +88,7 @@ const ensureEditorElementRegistered = () => {
         timeline_color_on: "Timeline color (on)",
         timeline_color_off: "Timeline color (off)",
         timeline_color_unknown: "Timeline color (unknown)",
+        icons_raw: "Custom icons",
       },
       [LANGUAGE_DE]: {
         title: "Titel",
@@ -103,6 +104,7 @@ const ensureEditorElementRegistered = () => {
         timeline_color_on: "Zeitstrahlfarbe (an)",
         timeline_color_off: "Zeitstrahlfarbe (aus)",
         timeline_color_unknown: "Zeitstrahlfarbe (unbekannt)",
+        icons_raw: "Eigene Icons",
       },
     },
     helpers: {
@@ -120,6 +122,8 @@ const ensureEditorElementRegistered = () => {
         timeline_color_off: "Color applied when a sensor reports OFF (downtime).",
         timeline_color_unknown:
           "Color applied when the sensor state is unknown or unavailable.",
+        icons_raw:
+          "Use 'entity_id = mdi:icon-name' per line to override sensor icons.",
       },
       [LANGUAGE_DE]: {
         entities:
@@ -137,6 +141,8 @@ const ensureEditorElementRegistered = () => {
         timeline_color_off: "Farbe, wenn der Sensor AUS meldet (Downtime).",
         timeline_color_unknown:
           "Farbe, wenn der Sensorzustand unbekannt oder nicht verfügbar ist.",
+        icons_raw:
+          "'entity_id = mdi:icon-name' pro Zeile, um Sensor-Icons zu setzen.",
       },
     },
     intro: {
@@ -230,6 +236,7 @@ const ensureEditorElementRegistered = () => {
     timeline_color_on: () => null,
     timeline_color_off: () => null,
     timeline_color_unknown: () => null,
+    icons_raw: () => ({ name: "icons_raw", selector: { text: { multiline: true } } }),
   };
 
   const createEditorSchemas = (lang, formData) => {
@@ -328,6 +335,38 @@ const ensureEditorElementRegistered = () => {
     return Object.keys(entries).length ? entries : undefined;
   };
 
+  const serializeIcons = (icons) => {
+    if (!icons) {
+      return "";
+    }
+    return Object.entries(icons)
+      .map(([entity, icon]) => `${entity} = ${icon}`)
+      .join("\n");
+  };
+
+  const parseIcons = (value) => {
+    if (!value) {
+      return undefined;
+    }
+    const entries = {};
+    String(value)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const separatorIndex = line.indexOf("=");
+        if (separatorIndex === -1) {
+          return;
+        }
+        const entity = line.slice(0, separatorIndex).trim();
+        const icon = line.slice(separatorIndex + 1).trim();
+        if (entity && icon) {
+          entries[entity] = icon;
+        }
+      });
+    return Object.keys(entries).length ? entries : undefined;
+  };
+
   const toNumber = (value) => {
     if (value === null || value === undefined || value === "") {
       return undefined;
@@ -343,6 +382,7 @@ const ensureEditorElementRegistered = () => {
     "exclude",
     "show_all",
     "names",
+    "icons",
     "name_filters",
     "hours_to_show",
     "show_names",
@@ -428,6 +468,7 @@ const ensureEditorElementRegistered = () => {
         exclude: serializePatternList(config.exclude),
         language_mode: config.language || LANGUAGE_AUTO,
         names_raw: serializeNames(config.names),
+        icons_raw: serializeIcons(config.icons),
         show_all: config.show_all || false,
         hours_to_show: config.hours_to_show,
         show_names: config.show_names ?? true,
@@ -828,6 +869,11 @@ const ensureEditorElementRegistered = () => {
       const names = parseNames(form.names_raw);
       if (names) {
         config.names = names;
+      }
+
+      const icons = parseIcons(form.icons_raw);
+      if (icons) {
+        config.icons = icons;
       }
 
       const hoursToShow = toNumber(form.hours_to_show);
@@ -1826,11 +1872,53 @@ const computeEntities = (hass, config) => {
   const providedEntitiesRaw = toArray(config.entities).filter(Boolean);
   const providedEntities = filterBinarySensorEntries(providedEntitiesRaw);
   if (providedEntities.length) {
-    return providedEntities;
+    const nameOverrides = config.names || {};
+    const iconOverrides = config.icons || {};
+    const nameFilters = toArray(config.name_filters)
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    return providedEntities.map((entry) => {
+      const entityId = getEntityIdFromEntry(entry);
+      if (!entityId) {
+        return entry;
+      }
+      const stateObj = hass.states?.[entityId];
+      const baseName = stateObj?.attributes?.friendly_name || prettifyEntityId(entityId);
+      const overrideName = nameOverrides[entityId];
+      const resolvedName = applyNameFilters(
+        overrideName !== undefined && overrideName !== null && String(overrideName).trim()
+          ? overrideName
+          : baseName,
+        nameFilters
+      );
+      const resolvedIcon =
+        iconOverrides[entityId] ||
+        (typeof entry === "object" && entry.icon ? entry.icon : stateObj?.attributes?.icon);
+
+      if (typeof entry === "object" && !Array.isArray(entry)) {
+        return {
+          ...entry,
+          entity: entityId,
+          name:
+            entry.name !== undefined && entry.name !== null
+              ? applyNameFilters(entry.name, nameFilters)
+              : resolvedName,
+          icon: resolvedIcon,
+        };
+      }
+
+      return {
+        entity: entityId,
+        name: resolvedName,
+        icon: resolvedIcon,
+      };
+    });
   }
 
   const excludePatterns = toArray(config.exclude).map((value) => toRegExp(value));
   const overrides = config.names || {};
+  const iconOverrides = config.icons || {};
   const nameFilters = toArray(config.name_filters)
     .map((value) => String(value).trim())
     .filter(Boolean);
@@ -1917,6 +2005,7 @@ const computeEntities = (hass, config) => {
   return limitedStates.map((state) => ({
     entity: state.entity_id,
     name: resolveDisplayName(state),
+    icon: iconOverrides[state.entity_id] || state.attributes?.icon,
   }));
 };
 
@@ -2004,7 +2093,6 @@ const forwardHistoryConfig = (config, entities) => {
   const passthroughKeys = [
     "title",
     "hours_to_show",
-    "show_names",
   ];
 
   passthroughKeys.forEach((key) => {
@@ -2012,6 +2100,8 @@ const forwardHistoryConfig = (config, entities) => {
       historyConfig[key] = config[key];
     }
   });
+
+  historyConfig.show_names = false;
 
   return historyConfig;
 };
@@ -2032,6 +2122,8 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._lastEntitiesKey = "";
       this._timelineColorTimeout = undefined;
       this._lastTimelineSignature = "";
+      this._timelineLayoutTimeout = undefined;
+      this._entityDisplayInfo = {};
     }
 
     static getStubConfig() {
@@ -2074,6 +2166,7 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       if (this._config.entities === undefined) {
         const entities = computeEntities(this._hass, this._config);
+        this._updateEntityDisplayInfo(entities);
         const key = JSON.stringify(entities);
         if (key !== this._lastEntitiesKey) {
           this._lastEntitiesKey = key;
@@ -2081,16 +2174,20 @@ if (!customElements.get("proxmox-uptime-card")) {
           this._createCard();
           return;
         }
+      } else if (Array.isArray(this._config.entities)) {
+        this._updateEntityDisplayInfo(this._config.entities);
       }
 
       if (this._card) {
         this._card.hass = hass;
         this._scheduleTimelineColorUpdate();
+        this._scheduleTimelineLayoutUpdate();
       }
     }
 
     disconnectedCallback() {
       this._clearTimelineColorTimeout();
+      this._clearTimelineLayoutTimeout();
     }
 
     getCardSize() {
@@ -2106,6 +2203,272 @@ if (!customElements.get("proxmox-uptime-card")) {
         clearTimeout(this._timelineColorTimeout);
         this._timelineColorTimeout = undefined;
       }
+    }
+
+    _clearTimelineLayoutTimeout() {
+      if (this._timelineLayoutTimeout) {
+        clearTimeout(this._timelineLayoutTimeout);
+        this._timelineLayoutTimeout = undefined;
+      }
+    }
+
+    _shouldShowCustomNames() {
+      return this._config?.show_names !== false;
+    }
+
+    _updateEntityDisplayInfo(entities) {
+      const info = {};
+      const entityArray = Array.isArray(entities) ? entities : [];
+      const nameFilters = toArray(this._config?.name_filters)
+        .map((value) => String(value).trim())
+        .filter(Boolean);
+      entityArray.forEach((entry) => {
+        const entityId = getEntityIdFromEntry(entry);
+        if (!entityId) {
+          return;
+        }
+        const stateObj = this._hass?.states?.[entityId];
+        let name;
+        if (entry && typeof entry === "object" && entry.name !== undefined) {
+          name = entry.name;
+        } else if (this._config?.names && this._config.names[entityId]) {
+          name = this._config.names[entityId];
+        } else {
+          name = stateObj?.attributes?.friendly_name || prettifyEntityId(entityId);
+        }
+
+        let icon;
+        if (entry && typeof entry === "object" && entry.icon) {
+          icon = entry.icon;
+        } else if (this._config?.icons && this._config.icons[entityId]) {
+          icon = this._config.icons[entityId];
+        } else {
+          icon = stateObj?.attributes?.icon;
+        }
+
+        info[entityId] = {
+          name: applyNameFilters(
+            typeof name === "string" ? name : String(name ?? entityId),
+            nameFilters
+          ),
+          icon: typeof icon === "string" && icon ? icon : "mdi:server-network",
+        };
+      });
+
+      this._entityDisplayInfo = info;
+    }
+
+    _resetTimelineLayoutEnhancements() {
+      if (!this._card) {
+        return false;
+      }
+      const root = this._card.shadowRoot || this._card;
+      if (!root) {
+        return false;
+      }
+
+      const overlays = root.querySelectorAll(".proxmox-timeline-label-overlay");
+      overlays.forEach((overlay) => {
+        if (overlay && overlay.parentElement) {
+          overlay.parentElement.classList.remove("proxmox-timeline-container");
+          overlay.remove();
+        }
+      });
+
+      const timelines = root.querySelectorAll("state-history-chart-timeline");
+      timelines.forEach((timeline) => {
+        if (timeline?.dataset) {
+          delete timeline.dataset.proxmoxLayoutSignature;
+        }
+      });
+
+      return overlays.length > 0;
+    }
+
+    _ensureTimelineLayoutStyles(root) {
+      let styleRoot = root instanceof ShadowRoot ? root : root?.shadowRoot;
+      if (!styleRoot && root instanceof Document) {
+        styleRoot = root.head || root;
+      }
+      if (!styleRoot) {
+        return;
+      }
+      if (styleRoot.querySelector("style[data-proxmox-timeline-layout]")) {
+        return;
+      }
+      const style = document.createElement("style");
+      style.setAttribute("data-proxmox-timeline-layout", "true");
+      style.textContent = `
+        .proxmox-timeline-container {
+          position: relative;
+        }
+
+        .proxmox-timeline-label-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-start;
+          pointer-events: none;
+          z-index: 2;
+        }
+
+        .proxmox-timeline-label-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          color: var(--primary-text-color);
+          font-weight: 500;
+          font-size: 0.95rem;
+          line-height: 1.2;
+          padding-bottom: 12px;
+          box-sizing: border-box;
+        }
+
+        .proxmox-timeline-label-row:last-child {
+          padding-bottom: 0;
+        }
+
+        .proxmox-timeline-label-row ha-icon {
+          --mdc-icon-size: 20px;
+          color: var(--primary-text-color);
+        }
+      `;
+      styleRoot.append(style);
+    }
+
+    _applyTimelineLayoutEnhancements() {
+      if (!this._card) {
+        return false;
+      }
+
+      if (!this._shouldShowCustomNames()) {
+        this._resetTimelineLayoutEnhancements();
+        return true;
+      }
+
+      const root = this._card.shadowRoot || this._card;
+      if (!root) {
+        return false;
+      }
+
+      const timelineElements = Array.from(
+        root.querySelectorAll("state-history-chart-timeline")
+      );
+
+      if (!timelineElements.length) {
+        return false;
+      }
+
+      let applied = false;
+
+      timelineElements.forEach((timelineEl) => {
+        if (!timelineEl) {
+          return;
+        }
+        const data = timelineEl.data;
+        if (!Array.isArray(data) || !data.length) {
+          return;
+        }
+
+        const container = timelineEl.parentElement;
+        if (!container) {
+          return;
+        }
+
+        container.classList.add("proxmox-timeline-container");
+        this._ensureTimelineLayoutStyles(container.getRootNode?.() || container);
+
+        let overlay = container.querySelector(
+          ":scope > .proxmox-timeline-label-overlay"
+        );
+        if (!overlay) {
+          overlay = document.createElement("div");
+          overlay.className = "proxmox-timeline-label-overlay";
+          container.appendChild(overlay);
+        }
+
+        const chartBase =
+          timelineEl.shadowRoot?.querySelector("ha-chart-base") ||
+          timelineEl.querySelector?.("ha-chart-base");
+        const timelineHeight = chartBase?.offsetHeight || timelineEl.offsetHeight || 0;
+        const rowHeight = timelineHeight && data.length ? timelineHeight / data.length : 0;
+
+        const signaturePayload = data.map((entry) => {
+          const entityId = entry?.entity_id || entry?.id || "";
+          const info = (entityId && this._entityDisplayInfo?.[entityId]) || {};
+          return {
+            id: entityId,
+            name:
+              typeof info.name === "string" && info.name
+                ? info.name
+                : entry?.name || entityId,
+            icon:
+              typeof info.icon === "string" && info.icon
+                ? info.icon
+                : entry?.icon || "mdi:server-network",
+          };
+        });
+
+        const heightSignature = Math.round(timelineHeight);
+        const signature = JSON.stringify({ data: signaturePayload, height: heightSignature });
+        if (overlay.dataset.proxmoxLayoutSignature === signature) {
+          return;
+        }
+
+        overlay.dataset.proxmoxLayoutSignature = signature;
+        overlay.innerHTML = "";
+
+        signaturePayload.forEach((entryInfo) => {
+          const row = document.createElement("div");
+          row.className = "proxmox-timeline-label-row";
+          if (rowHeight) {
+            const spacing = Math.max(12, Math.round(rowHeight * 0.35));
+            const usableHeight = Math.max(0, rowHeight - spacing);
+            row.style.height = `${usableHeight}px`;
+            row.style.paddingBottom = `${spacing}px`;
+          }
+
+          const iconEl = document.createElement("ha-icon");
+          iconEl.setAttribute("icon", entryInfo.icon || "mdi:server-network");
+          row.append(iconEl);
+
+          const textEl = document.createElement("span");
+          textEl.className = "proxmox-timeline-label-text";
+          textEl.textContent = entryInfo.name || entryInfo.id || "";
+          row.append(textEl);
+
+          overlay.append(row);
+        });
+
+        applied = true;
+      });
+
+      return applied;
+    }
+
+    _scheduleTimelineLayoutUpdate() {
+      this._clearTimelineLayoutTimeout();
+      const attemptLimit = 20;
+      let attempts = 0;
+
+      const apply = () => {
+        if (!this.isConnected || !this._card) {
+          this._timelineLayoutTimeout = undefined;
+          return;
+        }
+
+        const applied = this._applyTimelineLayoutEnhancements();
+        if (applied || attempts >= attemptLimit) {
+          this._timelineLayoutTimeout = undefined;
+          return;
+        }
+
+        attempts += 1;
+        this._timelineLayoutTimeout = setTimeout(apply, 150);
+      };
+
+      apply();
     }
 
     _getTimelineColorConfig() {
@@ -2222,6 +2585,7 @@ if (!customElements.get("proxmox-uptime-card")) {
         this._lastTimelineSignature = "";
         this._resetTimelineColors();
         this._clearTimelineColorTimeout();
+        this._scheduleTimelineLayoutUpdate();
         return;
       }
 
@@ -2247,6 +2611,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       };
 
       apply();
+      this._scheduleTimelineLayoutUpdate();
     }
 
     _applyTimelineColorToCard(colorConfig) {
@@ -2339,6 +2704,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       }
 
       this._lastEntitiesKey = JSON.stringify(historyConfig.entities);
+      this._updateEntityDisplayInfo(historyConfig.entities);
 
       const helpers = await this._loadHelpers();
       let cardElement;
@@ -2373,6 +2739,7 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._card = cardElement;
       this.append(cardElement);
       this._scheduleTimelineColorUpdate();
+      this._scheduleTimelineLayoutUpdate();
     }
 
     async _showError(message) {
@@ -2390,12 +2757,15 @@ if (!customElements.get("proxmox-uptime-card")) {
 
     _teardownCard() {
       this._resetTimelineColors();
+      this._resetTimelineLayoutEnhancements();
       if (this._card && this.contains(this._card)) {
         this.removeChild(this._card);
       }
       this._card = undefined;
       this._clearTimelineColorTimeout();
+      this._clearTimelineLayoutTimeout();
       this._lastTimelineSignature = "";
+      this._entityDisplayInfo = {};
     }
   }
 
