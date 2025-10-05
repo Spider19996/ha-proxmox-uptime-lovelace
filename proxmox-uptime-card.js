@@ -1089,6 +1089,8 @@ const TIMELINE_ORIGINAL_STYLE_KEY = "__proxmoxTimelineOriginalStyles";
 const TIMELINE_ELEMENT_SIGNATURE_KEY = "__proxmoxTimelineElementSignature";
 const TIMELINE_LABEL_OVERLAY_CLASS = "proxmox-timeline-label-overlay";
 const TIMELINE_LABEL_ORIGINAL_NAMES_KEY = "__proxmoxTimelineOriginalNames";
+const TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY =
+  "__proxmoxTimelineOriginalShowNames";
 const TIMELINE_LABEL_SIGNATURE_KEY = "__proxmoxTimelineLabelSignature";
 
 const COLOR_FIELDS = [
@@ -2140,6 +2142,53 @@ const cloneTimelineEntries = (entries) =>
     return clone;
   });
 
+const disableTimelineShowNames = (timeline) => {
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return false;
+  }
+
+  if (!(TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY in timeline)) {
+    timeline[TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY] = timeline.showNames;
+  }
+
+  if (timeline.showNames === false) {
+    return false;
+  }
+
+  const previous = timeline.showNames;
+  timeline.showNames = false;
+  timeline.toggleAttribute("show-names", false);
+  if (typeof timeline.requestUpdate === "function") {
+    timeline.requestUpdate("showNames", previous);
+  }
+  return true;
+};
+
+const restoreTimelineShowNames = (timeline) => {
+  if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
+    return false;
+  }
+
+  if (!(TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY in timeline)) {
+    return false;
+  }
+
+  const original = timeline[TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY];
+  delete timeline[TIMELINE_LABEL_ORIGINAL_SHOW_NAMES_KEY];
+
+  if (timeline.showNames === original) {
+    return false;
+  }
+
+  const previous = timeline.showNames;
+  timeline.showNames = original;
+  timeline.toggleAttribute("show-names", !!original);
+  if (typeof timeline.requestUpdate === "function") {
+    timeline.requestUpdate("showNames", previous);
+  }
+  return true;
+};
+
 const hideTimelineRowNames = (timeline) => {
   if (!timeline || timeline.tagName !== "STATE-HISTORY-CHART-TIMELINE") {
     return false;
@@ -2305,6 +2354,9 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
         }
         delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
       }
+      if (restoreTimelineShowNames(timeline)) {
+        changed = true;
+      }
       if (restoreTimelineRowNames(timeline)) {
         changed = true;
       }
@@ -2352,7 +2404,14 @@ const applyTimelineLabelsToTimelines = (timelines, options) => {
       if (restoreTimelineRowNames(timeline)) {
         changed = true;
       }
+      if (restoreTimelineShowNames(timeline)) {
+        changed = true;
+      }
       return;
+    }
+
+    if (disableTimelineShowNames(timeline)) {
+      changed = true;
     }
 
     if (hideTimelineRowNames(timeline)) {
@@ -2452,6 +2511,9 @@ const removeTimelineLabelOverlays = (timelines) => {
     }
     if (timeline[TIMELINE_LABEL_SIGNATURE_KEY]) {
       delete timeline[TIMELINE_LABEL_SIGNATURE_KEY];
+      removed = true;
+    }
+    if (restoreTimelineShowNames(timeline)) {
       removed = true;
     }
     if (restoreTimelineRowNames(timeline)) {
