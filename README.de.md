@@ -25,6 +25,10 @@ entities:
   - sensor.proxmox_host_uptime
 ```
 
+### Optionen
+
+- `show_timeline` *(optional, Standard `true`)* – Auf `false` setzen, um den unteren Zeitstrahl auszublenden. Die Option ist ebenfalls im visuellen Editor unter **Darstellung** verfügbar.
+
 ## Entwicklung
 
 Die Card kapselt die bestehende History-Graph-Implementierung aus Home Assistant und reicht die relevanten Optionen automatisiert weiter.

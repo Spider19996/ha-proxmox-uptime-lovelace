@@ -25,6 +25,10 @@ entities:
   - sensor.proxmox_host_uptime
 ```
 
+### Options
+
+- `show_timeline` *(optional, default `true`)* – Set to `false` to hide the lower timeline graph. The toggle is also available in the visual editor under the **Display** tab.
+
 ## Attribution
 
 This project wraps the upstream [Home Assistant History Graph Card](https://github.com/home-assistant/frontend/blob/dev/src/panels/lovelace/cards/hui-history-graph-card.ts) and forwards its configuration so that uptime sensors are displayed without additional manual setup.
