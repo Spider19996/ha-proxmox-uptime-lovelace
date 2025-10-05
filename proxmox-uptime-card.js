@@ -330,18 +330,10 @@ const ensureEditorElementRegistered = () => {
     "name_filters",
     "hours_to_show",
     "show_names",
-    "expand_legend",
-    "fit_y_data",
-    "logarithmic_scale",
-    "split_device_classes",
-    "min_y_axis",
-    "max_y_axis",
-    "unit",
     "language",
     "timeline_color_on",
     "timeline_color_off",
     "timeline_color_unknown",
-    "grid_options",
   ];
 
   class ProxmoxUptimeCardEditor extends HTMLElement {
