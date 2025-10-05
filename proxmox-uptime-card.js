@@ -8,6 +8,7 @@ const LANGUAGE_AUTO = "auto";
 const LANGUAGE_DE = "de";
 const LANGUAGE_EN = "en";
 const SUPPORTED_LANGUAGES = [LANGUAGE_AUTO, LANGUAGE_DE, LANGUAGE_EN];
+const DEFAULT_SENSOR_ICON = "mdi:server";
 
 const CARD_MESSAGES = {
   empty_entities: {
@@ -61,6 +62,7 @@ const ensureEditorElementRegistered = () => {
         "hours_to_show",
         "show_names",
         "name_filters",
+        "icons_raw",
         "timeline_color_on",
         "timeline_color_off",
         "timeline_color_unknown",
@@ -85,6 +87,7 @@ const ensureEditorElementRegistered = () => {
         hours_to_show: "Hours to show",
         show_names: "Show legend names",
         name_filters: "Name filters",
+        icons_raw: "Custom icons",
         timeline_color_on: "Timeline color (on)",
         timeline_color_off: "Timeline color (off)",
         timeline_color_unknown: "Timeline color (unknown)",
@@ -100,6 +103,7 @@ const ensureEditorElementRegistered = () => {
         hours_to_show: "Anzuzeigende Stunden",
         show_names: "Legendenamen anzeigen",
         name_filters: "Namensfilter",
+        icons_raw: "Eigene Icons",
         timeline_color_on: "Zeitstrahlfarbe (an)",
         timeline_color_off: "Zeitstrahlfarbe (aus)",
         timeline_color_unknown: "Zeitstrahlfarbe (unbekannt)",
@@ -116,6 +120,8 @@ const ensureEditorElementRegistered = () => {
           "Remove the Proxmox integration filter when picking binary sensors.",
         name_filters:
           "Provide words or phrases (one per line) to strip from entity names.",
+        icons_raw:
+          "Use 'entity_id = mdi:icon-name' per line to override timeline icons.",
         timeline_color_on: "Color applied when a sensor reports ON (uptime).",
         timeline_color_off: "Color applied when a sensor reports OFF (downtime).",
         timeline_color_unknown:
@@ -133,6 +139,8 @@ const ensureEditorElementRegistered = () => {
           "Entfernt den Proxmox-Filter bei der Auswahl von Binary-Sensoren.",
         name_filters:
           "Wörter oder Phrasen (eine pro Zeile), die aus den Namen entfernt werden sollen.",
+        icons_raw:
+          "'entity_id = mdi:icon-name' pro Zeile für Icon-Überschreibungen.",
         timeline_color_on: "Farbe, wenn der Sensor AN meldet (Uptime).",
         timeline_color_off: "Farbe, wenn der Sensor AUS meldet (Downtime).",
         timeline_color_unknown:
@@ -226,6 +234,7 @@ const ensureEditorElementRegistered = () => {
     hours_to_show: () => ({ name: "hours_to_show", selector: { number: { min: 1 } } }),
     show_names: () => ({ name: "show_names", selector: { boolean: {} } }),
     name_filters: () => ({ name: "name_filters", selector: { text: { multiline: true } } }),
+    icons_raw: () => ({ name: "icons_raw", selector: { text: { multiline: true } } }),
     show_all: () => ({ name: "show_all", selector: { boolean: {} } }),
     timeline_color_on: () => null,
     timeline_color_off: () => null,
@@ -305,6 +314,15 @@ const ensureEditorElementRegistered = () => {
       .join("\n");
   };
 
+  const serializeIcons = (icons) => {
+    if (!icons) {
+      return "";
+    }
+    return Object.entries(icons)
+      .map(([entity, icon]) => `${entity} = ${icon}`)
+      .join("\n");
+  };
+
   const parseNames = (value) => {
     if (!value) {
       return undefined;
@@ -328,6 +346,29 @@ const ensureEditorElementRegistered = () => {
     return Object.keys(entries).length ? entries : undefined;
   };
 
+  const parseIcons = (value) => {
+    if (!value) {
+      return undefined;
+    }
+    const entries = {};
+    String(value)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const separatorIndex = line.indexOf("=");
+        if (separatorIndex === -1) {
+          return;
+        }
+        const entity = line.slice(0, separatorIndex).trim();
+        const icon = line.slice(separatorIndex + 1).trim();
+        if (entity && icon) {
+          entries[entity] = icon;
+        }
+      });
+    return Object.keys(entries).length ? entries : undefined;
+  };
+
   const toNumber = (value) => {
     if (value === null || value === undefined || value === "") {
       return undefined;
@@ -343,6 +384,7 @@ const ensureEditorElementRegistered = () => {
     "exclude",
     "show_all",
     "names",
+    "icons",
     "name_filters",
     "hours_to_show",
     "show_names",
@@ -428,6 +470,7 @@ const ensureEditorElementRegistered = () => {
         exclude: serializePatternList(config.exclude),
         language_mode: config.language || LANGUAGE_AUTO,
         names_raw: serializeNames(config.names),
+        icons_raw: serializeIcons(config.icons),
         show_all: config.show_all || false,
         hours_to_show: config.hours_to_show,
         show_names: config.show_names ?? true,
@@ -828,6 +871,11 @@ const ensureEditorElementRegistered = () => {
       const names = parseNames(form.names_raw);
       if (names) {
         config.names = names;
+      }
+
+      const icons = parseIcons(form.icons_raw);
+      if (icons) {
+        config.icons = icons;
       }
 
       const hoursToShow = toNumber(form.hours_to_show);
@@ -1825,15 +1873,71 @@ const computeEntities = (hass, config) => {
 
   const providedEntitiesRaw = toArray(config.entities).filter(Boolean);
   const providedEntities = filterBinarySensorEntries(providedEntitiesRaw);
-  if (providedEntities.length) {
-    return providedEntities;
-  }
-
-  const excludePatterns = toArray(config.exclude).map((value) => toRegExp(value));
   const overrides = config.names || {};
+  const iconOverrides = config.icons || {};
   const nameFilters = toArray(config.name_filters)
     .map((value) => String(value).trim())
     .filter(Boolean);
+
+  if (providedEntities.length) {
+    return providedEntities
+      .map((entry) => {
+        const entityId = getEntityIdFromEntry(entry);
+        if (!entityId) {
+          return undefined;
+        }
+        const normalized =
+          typeof entry === "string" ? { entity: entityId } : { ...entry };
+        normalized.entity = entityId;
+        if ("entity_id" in normalized) {
+          delete normalized.entity_id;
+        }
+
+        const state = hass.states?.[entityId];
+        const overrideName = overrides[entityId];
+        let rawName;
+        if (overrideName !== undefined && overrideName !== null) {
+          rawName = overrideName;
+        } else if (
+          normalized.name !== undefined &&
+          normalized.name !== null &&
+          String(normalized.name).trim()
+        ) {
+          rawName = normalized.name;
+        } else if (state?.attributes?.friendly_name) {
+          rawName = state.attributes.friendly_name;
+        } else {
+          rawName = prettifyEntityId(entityId);
+        }
+        const filteredName = applyNameFilters(rawName, nameFilters);
+        if (filteredName) {
+          normalized.name = filteredName;
+        } else {
+          delete normalized.name;
+        }
+
+        const iconOverride = iconOverrides[entityId];
+        const providedIcon =
+          typeof normalized.icon === "string"
+            ? normalized.icon.trim()
+            : "";
+        const stateIcon =
+          typeof state?.attributes?.icon === "string"
+            ? state.attributes.icon.trim()
+            : "";
+        const resolvedIcon = iconOverride || providedIcon || stateIcon;
+        if (resolvedIcon) {
+          normalized.icon = resolvedIcon;
+        } else {
+          delete normalized.icon;
+        }
+
+        return normalized;
+      })
+      .filter(Boolean);
+  }
+
+  const excludePatterns = toArray(config.exclude).map((value) => toRegExp(value));
   const states = Object.values(hass.states || {});
 
   const includePatterns = toArray(config.match ?? DEFAULT_FILTER).map((value) =>
@@ -1901,6 +2005,18 @@ const computeEntities = (hass, config) => {
     return baseName;
   };
 
+  const resolveIcon = (state) => {
+    const override = iconOverrides[state.entity_id];
+    if (override) {
+      return override;
+    }
+    const icon = state.attributes?.icon;
+    if (typeof icon === "string" && icon.trim()) {
+      return icon.trim();
+    }
+    return undefined;
+  };
+
   binaryStates.sort((a, b) => {
     const nameA = resolveBaseName(a);
     const nameB = resolveBaseName(b);
@@ -1917,6 +2033,7 @@ const computeEntities = (hass, config) => {
   return limitedStates.map((state) => ({
     entity: state.entity_id,
     name: resolveDisplayName(state),
+    icon: resolveIcon(state),
   }));
 };
 
@@ -2001,17 +2118,15 @@ const collectTimelineElements = (element) => {
 
 const forwardHistoryConfig = (config, entities) => {
   const historyConfig = { type: "history-graph", entities };
-  const passthroughKeys = [
-    "title",
-    "hours_to_show",
-    "show_names",
-  ];
+  const passthroughKeys = ["title", "hours_to_show"];
 
   passthroughKeys.forEach((key) => {
     if (config[key] !== undefined) {
       historyConfig[key] = config[key];
     }
   });
+
+  historyConfig.show_names = false;
 
   return historyConfig;
 };
@@ -2028,10 +2143,14 @@ if (!customElements.get("proxmox-uptime-card")) {
       this._config = undefined;
       this._helpers = undefined;
       this._card = undefined;
+      this._cardWrapper = undefined;
       this._createCardPromise = undefined;
       this._lastEntitiesKey = "";
       this._timelineColorTimeout = undefined;
       this._lastTimelineSignature = "";
+      this._legendContainer = undefined;
+      this._legendData = [];
+      this._styleElement = undefined;
     }
 
     static getStubConfig() {
@@ -2085,6 +2204,7 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       if (this._card) {
         this._card.hass = hass;
+        this._renderLegend();
         this._scheduleTimelineColorUpdate();
       }
     }
@@ -2098,6 +2218,165 @@ if (!customElements.get("proxmox-uptime-card")) {
         return this._card.getCardSize();
       }
       return this._config?.title ? 3 : 2;
+    }
+
+    _ensureStyles() {
+      if (this._styleElement && this.contains(this._styleElement)) {
+        return;
+      }
+      if (!this._styleElement) {
+        this._styleElement = document.createElement("style");
+        this._styleElement.textContent = `
+          :host {
+            display: block;
+          }
+
+          .proxmox-uptime-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+
+          .proxmox-uptime-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .proxmox-uptime-legend[hidden] {
+            display: none;
+          }
+
+          .proxmox-uptime-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 28px;
+          }
+
+          .proxmox-uptime-legend-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            color: var(--secondary-text-color);
+          }
+
+          .proxmox-uptime-legend-icon ha-icon {
+            width: 24px;
+            height: 24px;
+          }
+
+          .proxmox-uptime-legend-name {
+            font-weight: 600;
+            line-height: 1.4;
+            word-break: break-word;
+          }
+        `;
+      }
+      this.prepend(this._styleElement);
+    }
+
+    _resolveLegendIcon(entityId, providedIcon) {
+      const configIcon =
+        typeof this._config?.icons?.[entityId] === "string"
+          ? this._config.icons[entityId].trim()
+          : "";
+      if (configIcon) {
+        return configIcon;
+      }
+      if (typeof providedIcon === "string" && providedIcon.trim()) {
+        return providedIcon.trim();
+      }
+      const stateIcon =
+        typeof this._hass?.states?.[entityId]?.attributes?.icon === "string"
+          ? this._hass.states[entityId].attributes.icon.trim()
+          : "";
+      if (stateIcon) {
+        return stateIcon;
+      }
+      return DEFAULT_SENSOR_ICON;
+    }
+
+    _resolveLegendName(entityId, providedName) {
+      if (typeof providedName === "string" && providedName.trim()) {
+        return providedName.trim();
+      }
+      const configName =
+        typeof this._config?.names?.[entityId] === "string"
+          ? this._config.names[entityId].trim()
+          : "";
+      if (configName) {
+        return configName;
+      }
+      const stateName =
+        typeof this._hass?.states?.[entityId]?.attributes?.friendly_name ===
+        "string"
+          ? this._hass.states[entityId].attributes.friendly_name
+          : "";
+      if (stateName) {
+        return stateName;
+      }
+      return prettifyEntityId(entityId);
+    }
+
+    _renderLegend(entities) {
+      if (Array.isArray(entities)) {
+        this._legendData = entities.map((entry) =>
+          typeof entry === "object" ? { ...entry } : entry
+        );
+      }
+
+      if (!this._legendContainer) {
+        return;
+      }
+
+      const data = Array.isArray(this._legendData)
+        ? this._legendData
+        : [];
+      const showNames = this._config?.show_names ?? true;
+
+      this._legendContainer.replaceChildren();
+
+      if (!showNames || !data.length) {
+        this._legendContainer.hidden = true;
+        return;
+      }
+
+      this._legendContainer.hidden = false;
+
+      data.forEach((entry) => {
+        const entityId = getEntityIdFromEntry(entry);
+        if (!entityId) {
+          return;
+        }
+        const row = document.createElement("div");
+        row.className = "proxmox-uptime-legend-row";
+
+        const iconWrapper = document.createElement("div");
+        iconWrapper.className = "proxmox-uptime-legend-icon";
+        const iconElement = document.createElement("ha-icon");
+        const providedIcon =
+          typeof entry === "object" ? entry.icon : undefined;
+        iconElement.setAttribute(
+          "icon",
+          this._resolveLegendIcon(entityId, providedIcon)
+        );
+        iconWrapper.append(iconElement);
+
+        const nameElement = document.createElement("div");
+        nameElement.className = "proxmox-uptime-legend-name";
+        const providedName =
+          typeof entry === "object" ? entry.name : undefined;
+        nameElement.textContent = this._resolveLegendName(
+          entityId,
+          providedName
+        );
+
+        row.append(iconWrapper, nameElement);
+        this._legendContainer.append(row);
+      });
     }
 
 
@@ -2352,7 +2631,17 @@ if (!customElements.get("proxmox-uptime-card")) {
       if (cardElement.tagName === "HUI-ERROR-CARD") {
         cardElement.hass = this._hass;
         this._card = cardElement;
-        this.append(cardElement);
+        this._ensureStyles();
+        const wrapper = document.createElement("div");
+        wrapper.className = "proxmox-uptime-wrapper";
+        const legend = document.createElement("div");
+        legend.className = "proxmox-uptime-legend";
+        legend.hidden = true;
+        wrapper.append(legend);
+        wrapper.append(cardElement);
+        this._legendContainer = legend;
+        this._cardWrapper = wrapper;
+        this.append(wrapper);
         return;
       }
 
@@ -2371,7 +2660,18 @@ if (!customElements.get("proxmox-uptime-card")) {
 
       cardElement.hass = this._hass;
       this._card = cardElement;
-      this.append(cardElement);
+      this._ensureStyles();
+      const wrapper = document.createElement("div");
+      wrapper.className = "proxmox-uptime-wrapper";
+      const legend = document.createElement("div");
+      legend.className = "proxmox-uptime-legend";
+      legend.hidden = true;
+      wrapper.append(legend);
+      wrapper.append(cardElement);
+      this._legendContainer = legend;
+      this._cardWrapper = wrapper;
+      this.append(wrapper);
+      this._renderLegend(historyConfig.entities);
       this._scheduleTimelineColorUpdate();
     }
 
@@ -2390,10 +2690,15 @@ if (!customElements.get("proxmox-uptime-card")) {
 
     _teardownCard() {
       this._resetTimelineColors();
-      if (this._card && this.contains(this._card)) {
+      if (this._cardWrapper && this.contains(this._cardWrapper)) {
+        this.removeChild(this._cardWrapper);
+      } else if (this._card && this.contains(this._card)) {
         this.removeChild(this._card);
       }
       this._card = undefined;
+      this._cardWrapper = undefined;
+      this._legendContainer = undefined;
+      this._legendData = [];
       this._clearTimelineColorTimeout();
       this._lastTimelineSignature = "";
     }
